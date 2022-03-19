@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    es-app: es-exporter
+  name: es-client-node
+  namespace: logging-system
+spec:
+  endpoints:
+  - interval: 30s
+    honorLabels: true
+    port: https
+    path: /_prometheus/metrics
+  namespaceSelector:
+    matchNames:
+    - logging-system
+  jobLabel: es-app
+  selector:
+    matchLabels:
+      app: elasticsearch-exporter

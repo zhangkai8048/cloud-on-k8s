@@ -1,0 +1,204 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentbit-config
+  namespace: logging-system
+data:
+  filter-kubernetes.conf: |
+    [FILTER]
+        Name record_modifier
+        Match *
+        Record hostname ${HOSTNAME}
+  fluent-bit.conf: |
+    [SERVICE]
+        # Set an interval of seconds before to flush records to a destination
+        Flush        5
+        # Instruct Fluent Bit to run in foreground or background mode.
+        Daemon       Off
+        # Set the verbosity level of the service, values can be:
+        Log_Level    info
+        # Specify an optional 'Parsers' configuration file
+        Parsers_File parsers.conf
+        # Plugins_File plugins.conf
+        # Enable/Disable the built-in Server for metrics
+        HTTP_Server  On
+        HTTP_Listen  0.0.0.0
+        HTTP_Port    2020
+
+    @INCLUDE input-kubernetes.conf
+    @INCLUDE filter-kubernetes.conf
+    @INCLUDE output-elasticsearch.conf
+  input-kubernetes.conf: |
+    [INPUT]
+        Name              systemd
+        Tag               host.*
+        Path              /var/log/journal
+        DB /var/log/fluentbit/td.sys.pos
+  output-elasticsearch.conf: |
+    [OUTPUT]
+        Name            es
+        Match           kube.*
+        Host            ${FLUENT_ELASTICSEARCH_HOST}
+        Port            ${FLUENT_ELASTICSEARCH_PORT}
+        tls             ${TLS_ENABLE}
+        tls.verify      ${TLS_VERIFY}
+        HTTP_User       ${ELASTICSEARCH_USERNAME}
+        HTTP_Passwd     ${ELASTICSEARCH_PASSWORD}
+        # Replace_Dots    On
+        Retry_Limit     False
+        Index kube
+        Type kube
+        Buffer_Size 2M
+        Include_Tag_Key On
+        Tag_Key component
+        Logstash_Format On
+        Logstash_prefix umstor-monitor
+
+  parsers.conf: |
+    [PARSER]
+        Name   apache
+        Format regex
+        Regex  ^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>.*)")?$
+        Time_Key time
+        Time_Format %d/%b/%Y:%H:%M:%S %z
+
+    [PARSER]
+        Name   apache2
+        Format regex
+        Regex  ^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^ ]*) +\S*)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
+        Time_Key time
+        Time_Format %d/%b/%Y:%H:%M:%S %z
+
+    [PARSER]
+        Name   apache_error
+        Format regex
+        Regex  ^\[[^ ]* (?<time>[^\]]*)\] \[(?<level>[^\]]*)\](?: \[pid (?<pid>[^\]]*)\])?( \[client (?<client>[^\]]*)\])? (?<message>.*)$
+
+    [PARSER]
+        Name   nginx
+        Format regex
+        Regex ^(?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$
+        Time_Key time
+        Time_Format %d/%b/%Y:%H:%M:%S %z
+
+    [PARSER]
+        Name   json
+        Format json
+        Time_Key time
+        Time_Format %d/%b/%Y:%H:%M:%S %z
+
+    [PARSER]
+        Name        docker
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+        # Command      |  Decoder | Field | Optional Action
+        # =============|==================|=================
+        Decode_Field_As   escaped    log
+
+    [PARSER]
+        Name        docker-daemon
+        Format      regex
+        Regex       time="(?<time>[^ ]*)" level=(?<level>[^ ]*) msg="(?<msg>[^ ].*)"
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+
+    [PARSER]
+        Name        syslog-rfc5424
+        Format      regex
+        Regex       ^\<(?<pri>[0-9]{1,5})\>1 (?<time>[^ ]+) (?<host>[^ ]+) (?<ident>[^ ]+) (?<pid>[-0-9]+) (?<msgid>[^ ]+) (?<extradata>(\[(.*)\]|-)) (?<message>.+)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+
+    [PARSER]
+        Name        syslog-rfc3164-local
+        Format      regex
+        Regex       ^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+        Time_Key    time
+        Time_Format %b %d %H:%M:%S
+        Time_Keep   On
+
+    [PARSER]
+        Name        syslog-rfc3164
+        Format      regex
+        Regex       /^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$/
+        Time_Key    time
+        Time_Format %b %d %H:%M:%S
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+
+    [PARSER]
+        Name    mongodb
+        Format  regex
+        Regex   ^(?<time>[^ ]*)\s+(?<severity>\w)\s+(?<component>[^ ]+)\s+\[(?<context>[^\]]+)]\s+(?<message>.*?) *(?<ms>(\d+))?(:?ms)?$
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+        Time_Key time
+
+    [PARSER]
+        # http://rubular.com/r/izM6olvshn
+        Name crio
+        Format Regex
+        Regex /^(?<time>.+)\b(?<stream>stdout|stderr)\b(?<log>.*)$/
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%N%:z
+        Time_Keep   On
+
+    [PARSER]
+        Name    kube-custom
+        Format  regex
+        Regex   var\.log\.containers\.(?<pod_name>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)_(?<namespace_name>[^_]+)_(?<container_name>.+)-(?<docker_id>[a-z0-9]{64})\.log$
+
+    [PARSER]
+        Name    filter-kube-test
+        Format  regex
+        Regex   .*kubernetes.(?<pod_name>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)_(?<namespace_name>[^_]+)_(?<container_name>.+)-(?<docker_id>[a-z0-9]{64})\.log$
+
+    [PARSER]
+        # umstor for all log files
+        # http://rubular.com/r/IvZVElTgNl
+        Name umstor
+        Format regex
+        Regex ^(?<log_time>[^ ][-.\d\+:T]+[ ]*[.:\d]*)\s+(?<thread_id>\w+)\s+(?<log_level>-*\d+)\s+(?<message>.*)$
+        Time_Format %Y-%m-%d %H:%M:%S.%L
+        Time_Keep Off
+        Time_Key log_time
+
+    [PARSER]
+        # scrub for osd
+        Name umstor-scrub
+        Format regex
+        Regex ^(?<log_time>[^ ][-.\d\+:T]+[ ]*[.:\d]*)\s+(?<m>\w+)\s+(?<ret>-*\d+)\s+(?<message>.*)\s+(?<scrub_pg>\d+.\w+)\s+(?<scrub_status>scrub\s\w+)$
+        Time_Format %Y-%m-%d %H:%M:%S.%L
+        Time_Keep Off
+        Time_Key log_time
+
+    [PARSER]
+        # deep-scrub for osd
+        Name umstor-deep-scrub
+        Format regex
+        Regex ^(?<log_time>[^ ][-.\d\+:T]+[ ]*[.:\d]*)\s+(?<m>\w+)\s+(?<ret>-*\d+)\s+(?<message>.*)\s+(?<scrub_pg>\d+.\w+)\s+(?<scrub_status>deep-scrub\s\w+)$
+        Time_Format %Y-%m-%d %H:%M:%S.%L
+        Time_Keep Off
+        Time_Key log_time
+
+    [PARSER]
+        # log warning for osd, mon
+        Name umstor-log-warn
+        Format regex
+        Regex ^(?<log_time>[^ ][-.\d\+:T]+[ ]*[.:\d]*)\s+(?<m>\w+)\s+(?<ret>-*\d+)\s+(?<log_channel>[^ ]+)\s+\w+\s+(?<log_level>[\[WRN\]]+)\s+(?<message>.*)$
+        Time_Format %Y-%m-%d %H:%M:%S.%L
+        Time_Keep Off
+        Time_Key log_time
+
+    [PARSER]
+        # log debug for osd, mon
+        Name umstor-log-debug
+        Format regex
+        Regex ^(?<log_time>[^ ][-.\d\+:T]+[ ]*[.:\d]*)\s+(?<m>\w+)\s+(?<ret>-*\d+)\s+(?<log_channel>[^ ]+)\s+\w+\s+(?<log_level>[\[DBG\]]+)\s+(?<message>.*)$
+        Time_Format %Y-%m-%d %H:%M:%S.%L
+        Time_Keep Off
+        Time_Key log_time

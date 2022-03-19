@@ -8,7 +8,7 @@ spec:
   version: 8.0.0
   nodeSets:
   - name: default
-    count: 3
+    count: 1
     config:
       # This setting could have performance implications for production clusters.
       # See: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-virtual-memory.html

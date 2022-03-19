@@ -8,6 +8,9 @@ metadata:
   name: elasticsearch-sample
 spec:
   version: 8.0.0
+  auth:
+    fileRealm:
+    - secretName: kubesphere-elasticsearch-realm-secret # 通过Kubernetes secret添加自定义用户和密码
   nodeSets:
   - name: default
     config:
@@ -18,13 +21,6 @@ spec:
       # uncomment the lines below to use the zone attribute from the node labels
       #cluster.routing.allocation.awareness.attributes: k8s_node_name,zone
       #node.attr.zone: ${ZONE}
-      # xpack.monitoring.enabled: true
-      # xpack.monitoring.collection.enabled: true
-      # indices.breaker.total.use_real_memory: false   # 关键参数，影响es性能
-      # indices.fielddata.cache.size: 40%   # 关键参数，影响es性能
-      # indices.query.bool.max_clause_count: 4096
-      # indices.memory.index_buffer_size: "25%"
-      
     podTemplate:
       metadata:
         labels:

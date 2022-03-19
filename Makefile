@@ -36,13 +36,14 @@ endif
 # for dev, suffix image name with current user name
 IMG_SUFFIX ?= -$(subst _,,$(shell whoami))
 
-REGISTRY           ?= docker.elastic.co
-REGISTRY_NAMESPACE ?= eck-dev
+REGISTRY           ?= registry.cn-qingdao.aliyuncs.com
+REGISTRY_NAMESPACE ?= zhangkai8048
 NAME               ?= eck-operator
 SNAPSHOT           ?= true
 VERSION            ?= $(shell cat VERSION)
 TAG                ?= $(shell git rev-parse --short=8 --verify HEAD)
-IMG_NAME           ?= $(NAME)$(IMG_SUFFIX)
+#IMG_NAME           ?= $(NAME)$(IMG_SUFFIX)
+IMG_NAME           ?= eck-operator
 IMG_VERSION        ?= $(VERSION)-$(TAG)
 
 BASE_IMG                 := $(REGISTRY)/$(REGISTRY_NAMESPACE)/$(IMG_NAME)
@@ -270,7 +271,7 @@ samples:
 
 # Display elasticsearch credentials of the first stack
 show-credentials:
-	@ echo "elastic:$$(kubectl get secret elasticsearch-sample-es-elastic-user -o json | jq -r '.data.elastic' | base64 -D)"
+	@ echo "elastic:$$(kubectl get secret elasticsearch-sample-es-elastic-user -o json | jq -r '.data.elastic' | base64 -d)"
 
 
 ##########################################
