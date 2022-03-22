@@ -27,10 +27,8 @@ spec:
         - containerPort: 9114
           name: https
         command: ["sh","-c"]
-        args:
-        
+        args:      
         - bin/elasticsearch_exporter --es.all --web.telemetry-path=/_prometheus/metrics --es.ssl-skip-verify --es.uri=https://$ES_USERNAME:$ES_PASSWORD@es-apm-sample-es-http:9200
-
         securityContext:
           capabilities:
             drop:
