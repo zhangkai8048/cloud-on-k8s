@@ -101,8 +101,9 @@ func ExtractVersion(labels map[string]string) (version.Version, error) {
 // NewLabels constructs a new set of labels from an Elasticsearch definition.
 func NewLabels(es types.NamespacedName) map[string]string {
 	return map[string]string{
-		ClusterNameLabelName: es.Name,
-		common.TypeLabelName: Type,
+		"app.bocloud.com/name": es.Name,
+		ClusterNameLabelName:   es.Name,
+		common.TypeLabelName:   Type,
 	}
 }
 

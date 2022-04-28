@@ -1,0 +1,126 @@
+categories:
+    - masterconfig
+    - dataconfig
+questions:
+###  master
+  - variable: advanced.master.config.node.data
+    label: master.config.node.data
+    description: "是否data角色"
+    default: "false"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: masterconfig
+  - variable: advanced.master.config.node.ingest
+    label: master.config.node.ingest
+    description: "是否ingest角色"
+    default: "false"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: masterconfig
+  - variable: advanced.master.config.node.master
+    label: master.config.node.master
+    description: "是否master角色"
+    default: "true"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: masterconfig
+  - variable: advanced.master.config.path.data
+    label: master.config.path.data
+    description: "数据路径"
+    default: "/usr/share/elasticsearch/data"
+    type: string
+    group: masterconfig
+  - variable: advanced.master.config.path.logs
+    label: master.config.path.logs
+    description: "日志路径"
+    default: "/usr/share/elasticsearch/logs"
+    type: string
+    group: masterconfig  
+
+###  data 
+  - variable: advanced.data.config.node.data
+    label: data.config.node.data
+    description: "是否data角色"
+    default: "true"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: dataconfig
+  - variable: advanced.data.config.node.ingest
+    label: data.config.node.ingest
+    description: "是否ingest角色"
+    default: "false"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: dataconfig
+  - variable: advanced.data.config.node.master
+    label: data.config.node.master
+    description: "是否master角色"
+    default: "false"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: dataconfig
+  - variable: advanced.master.config.path.data
+    label: data.config.path.data
+    description: "数据路径"
+    default: "/usr/share/elasticsearch/data"
+    type: string
+    group: dataconfig
+  - variable: advanced.master.config.path.logs
+    label: data.config.path.logs
+    description: "日志路径"
+    default: "/usr/share/elasticsearch/logs"
+    type: string
+    group: dataconfig 
+
+### client
+  - variable: advanced.client.config.node.data
+    label: client.config.node.data
+    description: "是否data角色"
+    default: "false"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: dataconfig
+  - variable: advanced.client.config.node.ingest
+    label: client.config.node.ingest
+    description: "是否ingest角色"
+    default: "true"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: dataconfig
+  - variable: advanced.client.config.node.master
+    label: client.config.node.master
+    description: "是否master角色"
+    default: "false"
+    type: enum
+    options:
+      - "true"
+      - "false" 
+    group: dataconfig
+  - variable: advanced.client.config.path.data
+    label: client.config.path.data
+    description: "数据路径"
+    default: "/usr/share/elasticsearch/data"
+    type: string
+    group: dataconfig
+  - variable: advanced.client.config.path.logs
+    label: client.config.path.logs
+    description: "日志路径"
+    default: "/usr/share/elasticsearch/logs"
+    type: string
+    group: dataconfig 

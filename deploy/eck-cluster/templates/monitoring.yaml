@@ -1,0 +1,34 @@
+{{ if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" -}}{{ if .Values.monitoring.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "elasticsearch.fullname" .}}
+  labels:
+    release: prometheus
+    app: elasticsearch-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-exporter
+      app.kubernetes.io/part-of: {{ .Release.Name }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  jobLabel: elasticsearch
+  endpoints:
+  - interval: 30s
+    honorLabels: true
+    port: https
+    path: /_prometheus/metrics
+
+
+
+
+
+
+
+
+
+
+
+  {{ end -}}{{ end -}}

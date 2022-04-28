@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch-exporter
+  namespace: default
+  labels:
+    app: elasticsearch-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch-exporter
+  template:
+    metadata:
+      labels:
+        app: elasticsearch-exporter
+    spec:
+      containers:
+      - name: elasticsearch-exporter
+        image: justwatch/elasticsearch_exporter:1.1.0
+        resources:
+          limits:
+            cpu: 300m
+          requests:
+            cpu: 200m
+        ports:
+        - containerPort: 9114
+          name: https
+        command: ["sh","-c"]
+        args:      
+        - bin/elasticsearch_exporter --es.all --web.telemetry-path=/_prometheus/metrics --es.ssl-skip-verify --es.uri=https://bocloud:bocloud@test-es-http:9200
+        securityContext:
+          capabilities:
+            drop:
+            - SETPCAP
+            - MKNOD
+            - AUDIT_WRITE
+            - CHOWN
+            - NET_RAW
+            - DAC_OVERRIDE
+            - FOWNER
+            - FSETID
+            - KILL
+            - SETGID
+            - SETUID
+            - NET_BIND_SERVICE
+            - SYS_CHROOT
+            - SETFCAP
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 9114
+          initialDelaySeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 9114
+          initialDelaySeconds: 10
+          timeoutSeconds: 10
+   
+      
+      

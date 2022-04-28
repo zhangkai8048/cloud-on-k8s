@@ -1,0 +1,429 @@
+# This sample sets up an Elasticsearch cluster with 3 nodes.
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name:  {{ .Release.Name }}
+  labels:
+    app: {{ template "elasticsearch.name" . }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+spec:
+  version:  {{ .Values.version }}
+  auth:
+    fileRealm:
+    - secretName: bocloud-elasticsearch-realm-secret # 通过Kubernetes secret添加自定义用户和密码
+  {{- if eq .Values.model "advanced" }}
+  nodeSets:
+    - name: master
+      count: {{.Values.advanced.master.replicas}}
+      {{- if .Values.advanced.master.storage.enable }}
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{.Values.advanced.master.storage.size}}
+            storageClassName: {{.Values.advanced.data.storage.className}}
+        {{- end }}
+      podTemplate:
+        spec:
+          volumes:
+            - name: elasticsearch-data
+              emptyDir: {}
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+            {{- if .Values.plugins.enable}}
+            - name: install-plugins
+              command: ['sh', '-c', "bin/elasticsearch-plugin install --batch {{.Values.plugins.list}}"]
+              {{- end }}
+          containers:
+            - name: elasticsearch
+              image: {{.Values.advanced.master.image}}
+              readinessProbe:
+                exec:
+                  command:
+                    - bash
+                    - -c
+                    - /mnt/elastic-internal/scripts/readiness-probe-script.sh
+                failureThreshold: 3
+                initialDelaySeconds: 100
+                periodSeconds: 12
+                successThreshold: 1
+                timeoutSeconds: 12
+              env:
+                - name: ES_JAVA_OPTS
+                  value: {{.Values.advanced.master.javaOpts}}
+                - name: READINESS_PROBE_TIMEOUT
+                  value: "10"
+{{- if .Values.advanced.master.resources }}
+              resources:
+{{ toYaml .Values.advanced.master.resources  | indent 16 }}
+{{- end }}
+              {{- if .Values.tolerations }}
+              tolerations:
+{{ toYaml .Values.tolerations | indent 16 }}
+              {{- end }}
+              {{- with .Values.nodeSelector }}
+              nodeSelector:
+{{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- if or .Values.podAntiAffinity .Values.nodeAffinityConfig.enable }}
+              affinity:
+                {{- if .Values.nodeAffinityConfig.enable }}
+                nodeAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      preference:
+                        matchExpressions:
+                          - key: {{ .Values.nodeAffinityConfig.nodeSelectorLabel.key}}
+                            operator: In
+                            values:
+                              {{- range .Values.nodeAffinityConfig.nodeSelectorLabel.values}}
+                              - {{  . | quote}}
+                                {{- end}}
+                                {{- end }}
+                {{- if eq .Values.podAntiAffinity "hard" }}
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                      labelSelector:
+                        matchExpressions:
+                          - key: cluster
+                            operator: In
+                            values:
+                              - {{ .Release.Name }}-cluster
+                {{- else if eq .Values.podAntiAffinity "soft" }}
+                podAntiAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      podAffinityTerm:
+                        topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                        labelSelector:
+                          matchExpressions:
+                            - key: cluster
+                              operator: In
+                              values:
+                                - {{ .Release.Name }}-cluster
+                {{- end }}{{- end }}
+
+
+
+{{- if .Values.advanced.master.config }}
+      config:       
+{{ toYaml .Values.advanced.master.config  | indent 8 }}
+{{- end }}  
+    - name: data
+      count: {{.Values.advanced.data.replicas}}
+      {{- if .Values.advanced.data.storage.enable }}
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{.Values.advanced.data.storage.size}}
+            storageClassName: {{.Values.advanced.data.storage.className}}
+      {{- end }}       
+      podTemplate:
+        spec:
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+            - name: increase-fd-ulimit
+              securityContext:
+                privileged: true
+              command: ["sh", "-c", "ulimit -n 65536"]
+            {{- if .Values.plugins.enable}}
+            - name: install-plugins
+              command: ['sh', '-c', "bin/elasticsearch-plugin install --batch {{.Values.plugins.list}}"]
+              {{- end }}
+          containers:
+            - name: elasticsearch
+              image: {{.Values.advanced.data.image}}
+              readinessProbe:
+                exec:
+                  command:
+                    - bash
+                    - -c
+                    - /mnt/elastic-internal/scripts/readiness-probe-script.sh
+                failureThreshold: 3
+                initialDelaySeconds: 100
+                periodSeconds: 12
+                successThreshold: 1
+                timeoutSeconds: 12
+              env:
+                - name: ES_JAVA_OPTS
+                  value: {{.Values.advanced.data.javaOpts}}
+                - name: READINESS_PROBE_TIMEOUT
+                  value: "10"
+              {{- if .Values.advanced.data.resources }}
+              resources:
+{{ toYaml .Values.advanced.data.resources  | indent 16 }}
+              {{- end }}
+
+              {{- if .Values.tolerations }}
+              tolerations:
+{{ toYaml .Values.tolerations | indent 16 }}
+              {{- end }}
+              {{- with .Values.nodeSelector }}
+              nodeSelector:
+{{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- if or .Values.podAntiAffinity .Values.nodeAffinityConfig.enable }}
+              affinity:
+                {{- if .Values.nodeAffinityConfig.enable }}
+                nodeAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      preference:
+                        matchExpressions:
+                          - key: {{ .Values.nodeAffinityConfig.nodeSelectorLabel.key}}
+                            operator: In
+                            values:
+                              {{- range .Values.nodeAffinityConfig.nodeSelectorLabel.values}}
+                              - {{  . | quote}}
+                                {{- end}}
+                                {{- end }}
+                {{- if eq .Values.podAntiAffinity "hard" }}
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                      labelSelector:
+                        matchExpressions:
+                          - key: cluster
+                            operator: In
+                            values:
+                              - {{ .Release.Name }}-cluster
+                {{- else if eq .Values.podAntiAffinity "soft" }}
+                podAntiAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      podAffinityTerm:
+                        topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                        labelSelector:
+                          matchExpressions:
+                            - key: cluster
+                              operator: In
+                              values:
+                                - {{ .Release.Name }}-cluster
+                {{- end }}{{- end }}
+
+{{- if .Values.advanced.data.config }}
+      config:       
+{{ toYaml .Values.advanced.data.config  | indent 8 }}
+{{- end }} 
+    - name: client
+      count: {{.Values.advanced.client.replicas}}
+      {{- if .Values.advanced.client.storage.enable }}
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{.Values.advanced.client.storage.size}}
+            storageClassName: {{.Values.advanced.client.storage.className}}
+      {{- end }}       
+      podTemplate:
+        spec:
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+            - name: increase-fd-ulimit
+              securityContext:
+                privileged: true
+              command: ["sh", "-c", "ulimit -n 65536"]
+            {{- if .Values.plugins.enable}}
+            - name: install-plugins
+              command: ['sh', '-c', "bin/elasticsearch-plugin install --batch {{.Values.plugins.list}}"]
+              {{- end }}
+          containers:
+            - name: elasticsearch
+              image: {{.Values.advanced.client.image}}
+              readinessProbe:
+                exec:
+                  command:
+                    - bash
+                    - -c
+                    - /mnt/elastic-internal/scripts/readiness-probe-script.sh
+                failureThreshold: 3
+                initialDelaySeconds: 100
+                periodSeconds: 12
+                successThreshold: 1
+                timeoutSeconds: 12
+              env:
+                - name: ES_JAVA_OPTS
+                  value: {{.Values.advanced.client.javaOpts}}
+                - name: READINESS_PROBE_TIMEOUT
+                  value: "10"
+      {{- if .Values.advanced.client.resources }}
+              resources:
+{{ toYaml .Values.advanced.client.resources  | indent 16 }}
+      {{- end }}
+              {{- if .Values.tolerations }}
+              tolerations:
+{{ toYaml .Values.tolerations | indent 16 }}
+              {{- end }}
+              {{- with .Values.nodeSelector }}
+              nodeSelector:
+{{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- if or .Values.podAntiAffinity .Values.nodeAffinityConfig.enable }}
+              affinity:
+                {{- if .Values.nodeAffinityConfig.enable }}
+                nodeAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      preference:
+                        matchExpressions:
+                          - key: {{ .Values.nodeAffinityConfig.nodeSelectorLabel.key}}
+                            operator: In
+                            values:
+                              {{- range .Values.nodeAffinityConfig.nodeSelectorLabel.values}}
+                              - {{  . | quote}}
+                                {{- end}}
+                                {{- end }}
+                {{- if eq .Values.podAntiAffinity "hard" }}
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                      labelSelector:
+                        matchExpressions:
+                          - key: cluster
+                            operator: In
+                            values:
+                              - {{ .Release.Name }}-cluster
+                {{- else if eq .Values.podAntiAffinity "soft" }}
+                podAntiAffinity:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      podAffinityTerm:
+                        topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                        labelSelector:
+                          matchExpressions:
+                            - key: cluster
+                              operator: In
+                              values:
+                                - {{ .Release.Name }}-cluster
+        {{- end }}{{- end }}
+{{- if .Values.advanced.client.config }}
+      config:       
+{{ toYaml .Values.advanced.client.config  | indent 8 }}
+{{- end }}      
+  {{- else}}
+  nodeSets:
+  - name: default
+    config:
+      node.roles: ["master", "data", "ingest", "ml"]
+      node.store.allow_mmap: false
+    podTemplate:
+      metadata:
+        labels:
+          boc.cloud.com/name: elastic
+      spec:
+        initContainers:
+          - name: sysctl
+            securityContext:
+              privileged: true
+            command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          {{- if .Values.plugins.enable}}
+          - name: install-plugins
+            command: ['sh', '-c', "bin/elasticsearch-plugin install --batch {{.Values.plugins.list}}"]
+          {{- end }}
+        automountServiceAccountToken: true
+        containers:
+          - name: elasticsearch
+            {{- with .Values.resources }}
+            resources:
+{{- toYaml . | nindent 14 }}
+            {{- end }}
+
+            {{- if .Values.tolerations }}
+            tolerations:
+{{ toYaml .Values.tolerations | indent 14 }}
+            {{- end }}
+            {{- with .Values.nodeSelector }}
+            nodeSelector:
+{{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- if or .Values.podAntiAffinity .Values.nodeAffinityConfig.enable }}
+            affinity:
+{{- if .Values.nodeAffinityConfig.enable }}
+              nodeAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                    - key: {{ .Values.nodeAffinityConfig.nodeSelectorLabel.key}}
+                      operator: In
+                      values:
+                        {{- range .Values.nodeAffinityConfig.nodeSelectorLabel.values}}
+                      - {{  . | quote}}
+                      {{- end}}
+{{- end }}
+{{- if eq .Values.podAntiAffinity "hard" }}
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                    labelSelector:
+                      matchExpressions:
+                        - key: cluster
+                          operator: In
+                          values:
+                            - {{ .Release.Name }}-cluster
+{{- else if eq .Values.podAntiAffinity "soft" }}
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      topologyKey: {{ .Values.podAntiAffinityTopologyKey }}
+                      labelSelector:
+                        matchExpressions:
+                          - key: cluster
+                            operator: In
+                            values:
+                              - {{ .Release.Name }}-cluster
+{{- end }}{{- end }}
+            env:
+              - name: ES_JAVA_OPTS
+                value: {{.Values.default.javaOpts}}
+    count: {{ .Values.default.count}}
+    {{- if .Values.global.storage.enable }}         
+    volumeClaimTemplates:
+      - metadata:
+          name: elasticsearch-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .Values.global.storage.storageSize}}
+          storageClassName: {{.Values.global.storage.storageClassName}}
+    {{- end }}        
+  {{- end }}
+  http:
+     service:
+       spec:
+         type: {{ .Values.serviceType}}
+  {{- if .Values.ssl.enabled }}
+     tls:
+        certificate:
+          secretName: {{ .Release.Name }}-user-secret
+        selfSignedCertificate:
+          disabled: true 
+  {{- end }}
+ 

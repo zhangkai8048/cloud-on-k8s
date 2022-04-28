@@ -1,0 +1,171 @@
+categories:
+- eck-cluster
+questions:
+
+#eck-cluster config
+
+- variable: version 
+  default: 7.14.0
+  description: "elastic 版本"
+  label: "elastic 版本"
+  type: string
+  group: "global"
+
+- variable: image.tag 
+  default: 1.8.0-SNAPSHOT-181886ca
+  description: "Use default operator tag"
+  label: "版本"
+  type: string
+  group: "global"
+
+- variable: serviceType 
+  description: "服务类型"
+  label: "service服务类型"
+  group: "global"
+  default:  NodePort
+  type: enum
+  options:
+  - "NodePort"
+  - "ClusterIP"
+  - "LoadBalancer" 
+
+- variable: resources.resourcesQuotas
+  default: false
+  label: "是否设置资源"
+  type: boolean
+  group: "global"
+  show_subquestion_if: true
+  subquestions:
+    - variable: resources.limits.cpu
+      default: "1"
+      type: string
+      label: "cpu限制数" 
+    - variable: redis-cluster.resources.limits.memory
+      default: "512Mi"
+      type: string
+      label: "内存限制数" 
+    - variable: redis-cluster.resources.requests.cpu
+      default: "100m"
+      type: string
+      label: "cpu请求数" 
+    - variable: redis-cluster.resources.requests.memory
+      default: "100Mi"
+      type: string
+      label: "内存请求数"  
+
+          
+- variable:   global.storage.enable
+  description: "storage  config"
+  label: "持久化配置开启"
+  type: boolean
+  default: false
+  group: "global"
+  show_subquestion_if: true
+  subquestions:
+       - variable: global.storage.storageClassName
+         description: "storageClass"
+         label: "storageClass"
+         type: string
+         default:  nfs
+       - variable:  global.storage.storageSize
+         description: "size"
+         label: "size"
+         type: string
+         default:  1Gi 
+
+
+
+# - variable: default.enable
+#   default: true
+#   label: "默认模式（broker不分离角色）"
+#   type: boolean
+#   group: "global"
+#   show_subquestion_if: true
+#   subquestions:
+- variable: default.count 
+  default: 1
+  description: "broker replicas"
+  label: "副本"
+  type: int
+  min: 1
+  max: 7
+  group: "broker"  
+- variable: default.javaOpts 
+  default: "-Xms2g -Xmx2g"
+  description: "javaOpts"
+  label: "jvm配置"
+  type: string
+  group: "broker" 
+
+         
+
+- variable:   plugins.enable
+  description: "plugins  config"
+  label: "是否安装插件"
+  type: boolean
+  group: "broker"   
+  default: false
+  show_subquestion_if: true  
+  subquestions:
+  - variable: plugins.list 
+    default: "repository-gcs analysis-icu repository-s3"
+    description: "plugins"
+    label: "plugins"
+    type: string
+    group: "broker" 
+
+
+- variable: podAntiAffinityEnable
+  label: "pods 反亲和性是否开启 "
+  description: "podAntiAffinity"
+  type: boolean
+  default: false
+  show_subquestion_if: true
+  subquestions:
+    - variable: podAntiAffinity
+      default: "soft"
+      label: " 节点软、硬反亲和"
+      type: enum
+      options:
+        - "soft"
+        - "hard"
+    - variable: podAntiAffinityTopologyKey
+      default: "kubernetes.io/hostname "
+      label: "redis 节点拓扑域标签设置"
+      type: string 
+
+- variable:  nodeAffinityConfig.enable
+  description: "nodeAffinityConfig "
+  label: "是否开启节点node亲和"
+  type: boolean
+  default: false
+  group: "cluster Settings"
+  show_subquestion_if: true
+  subquestions:
+    - variable:  podAntiAffinityConfig.nodeSelectorLabel.key
+      description: "nodeSelectorLabel "
+      label: "key"
+      type: string
+      default: "kubernetes.io/e2e-az-name"
+      group: "cluster Settings"
+    - variable:  podAntiAffinityConfig.nodeSelectorLabel.values
+      description: "nodeSelectorLabel "
+      label: "values"
+      type: string
+      default: '{e2e-az1,e2e-az2}'
+      group: "cluster Settings"  
+  
+ 
+
+- variable: ssl.enabled
+  label: "ssl"
+  description: "ssl"
+  type: boolean
+  default: false
+  show_subquestion_if: true
+  subquestions:
+    - variable: ssl.secretname
+      default: ''
+      label: "ssl secretname"
+      type: string      
+

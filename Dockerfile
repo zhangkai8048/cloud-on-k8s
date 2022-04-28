@@ -10,7 +10,7 @@ WORKDIR /go/src/github.com/elastic/cloud-on-k8s
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 COPY ["go.mod", "go.sum", "./"]
-RUN go mod download
+RUN go env -w GOPROXY="https://goproxy.cn" && go mod download
 
 # Copy the go source
 COPY pkg/    pkg/

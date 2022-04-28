@@ -1,0 +1,87 @@
+{{ if .Values.exporter.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-exporter
+  labels:
+    app: {{ .Release.Name }}-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-exporter
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-exporter
+    spec:
+      containers:
+      - name: {{ .Release.Name }}-exporter
+        image: {{ .Values.exporter.image.repository}}:{{ .Values.exporter.image.tag}}
+        resources:
+          requests:
+            cpu: {{ .Values.exporter.resources.requests.cpu}}
+            memory: {{ .Values.exporter.resources.requests.memory}}
+          limits:
+            cpu: {{ .Values.exporter.resources.limits.cpu}}
+            memory: {{ .Values.exporter.resources.limits.memory}}
+        ports:
+        - containerPort: 9114
+          name: https
+        command: ["sh","-c"]
+        args:      
+        - bin/elasticsearch_exporter --es.all --web.telemetry-path=/_prometheus/metrics --es.ssl-skip-verify --es.uri=https://bocloud:bocloud@test-es-http:9200
+        securityContext:
+          capabilities:
+            drop:
+            - SETPCAP
+            - MKNOD
+            - AUDIT_WRITE
+            - CHOWN
+            - NET_RAW
+            - DAC_OVERRIDE
+            - FOWNER
+            - FSETID
+            - KILL
+            - SETGID
+            - SETUID
+            - NET_BIND_SERVICE
+            - SYS_CHROOT
+            - SETFCAP
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 9114
+          initialDelaySeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 9114
+          initialDelaySeconds: 10
+          timeoutSeconds: 10
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-exporter
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-exporter
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  ports:
+    - name: https
+      protocol: TCP
+      port: 9114
+      targetPort: 9114
+  selector:
+    app: {{ .Release.Name }}-exporter
+  type: NodePort  
+{{- end }}          
+   
+      
+      

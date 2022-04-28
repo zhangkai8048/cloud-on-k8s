@@ -10,7 +10,7 @@ spec:
   version: 8.0.0
   auth:
     fileRealm:
-    - secretName: kubesphere-elasticsearch-realm-secret # 通过Kubernetes secret添加自定义用户和密码
+    - secretName: bocloud-elasticsearch-realm-secret # 通过Kubernetes secret添加自定义用户和密码
   nodeSets:
   - name: default
     config:

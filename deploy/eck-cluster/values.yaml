@@ -1,0 +1,164 @@
+
+
+
+version: 8.0.0
+serviceType: NodePort
+kibana:
+  enabled: false
+  image: abcsys.cn:5000/public/kibana:8.0.0
+  serviceType: NodePort
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+
+apmserver:
+  enabled: false
+  image: abcsys.cn:5000/public/apmserver:8.0.0
+  serviceType: NodePort
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+global:
+  storage:
+    enable: true
+    storageClassName: standard
+    storageSize: 2G
+
+model: default # advanced,default
+advanced:
+  master:
+    javaOpts: "-Xms256m -Xmx256m"
+    image: abcsys.cn:5000/public/elasticsearch:8.0.0
+    replicas: 1
+    storage:
+      enable: true
+      size: 5G
+      className: nfs-suzhou
+    resources:
+      requests:
+        cpu: 300m
+        memory: 1024Mi
+      limits:
+        cpu: 1000m
+        memory: 2048Mi
+    config: {}
+      # node.data: "false"
+      # node.ingest: "false"
+      # node.master: "true"
+
+ 
+
+  data:
+    javaOpts: "-Xms256m -Xmx256m"
+    image: abcsys.cn:5000/public/elasticsearch:8.0.0
+    replicas: 1
+    storage:
+      enable: true
+      size: 5G
+      className: nfs
+    resources:
+      requests:
+        cpu: 100m
+      limits:
+        cpu: 1000m
+    config: {}
+      # node.master: "false"
+      # node.data: "true"
+      # node.ingest: "false"
+
+  client:
+    javaOpts: "-Xms256m -Xmx256m"
+    image: abcsys.cn:5000/public/elasticsearch:8.0.0
+    storage:
+      enable: true
+      size: 5G
+      className: nfs
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+      limits:
+        cpu: 1000m
+    config: {}
+      # node.master: "false"
+      # node.data: "false"
+      # node.ingest: "true"
+
+
+default:
+  enable: true
+  count: 1
+  javaOpts: "-Xms2g -Xmx2g"
+
+
+plugins:
+  enable: false
+  list: "repository-gcs analysis-icu repository-s3"
+resources:
+      limits:
+        cpu: 1000m
+      requests:
+        cpu: 300m
+
+
+monitoring:
+  enabled: false
+
+podAntiAffinityEnable: true
+podAntiAffinity: "soft" # hard or soft
+podAntiAffinityTopologyKey: kubernetes.io/hostname
+
+
+nodeAffinityConfig:
+  enable: false
+  nodeSelectorLabel:
+    key: storage #kubernetes.io/e2e-az-name
+    operator: In
+    values:
+      - carina
+     
+
+
+exporter:
+  enabled: true
+  image:
+    repository: justwatch/elasticsearch_exporter
+    tag: 1.1.0
+    pullPolicy: IfNotPresent
+    pullSecret: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 528Mi  
+
+auth:
+  enabled: false
+  roles:
+    - secretName: elasticsearch-roles-secret 
+  fileRealm:
+    - secretName: elasticsearch-realm-secret   
+ssl:
+  enabled: false
+  passwd: "elastic"
+
+nodeSelectorEnable: false
+nodeSelector: {}
+  #boc.cloud.com/role: dev
+tolerations: []
+#    - key: "key"
+#      operator: "Equal"
+#      value: "value"
+#      effect: "NoSchedule"

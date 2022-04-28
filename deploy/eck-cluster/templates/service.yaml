@@ -1,0 +1,110 @@
+{{ if .Values.serviceType }}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-bocloud-master
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-master
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  ports:
+    - name: https
+      protocol: TCP
+      port: 9200
+      targetPort: 9200
+  selector:
+    app.bocloud.com/name: {{ .Release.Name }}
+    common.k8s.elastic.co/type: elasticsearch
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/statefulset-name: {{ .Release.Name }}-es-master  
+  type: NodePort
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-bocloud-data
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-data
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  ports:
+    - name: https
+      protocol: TCP
+      port: 9200
+      targetPort: 9200
+  selector:
+    app.bocloud.com/name: {{ .Release.Name }}
+    common.k8s.elastic.co/type: elasticsearch
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/statefulset-name: {{ .Release.Name }}-es-data  
+  type: NodePort
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-bocloud-client
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-client
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  ports:
+    - name: https
+      protocol: TCP
+      port: 9200
+      targetPort: 9200
+  selector:
+    app.bocloud.com/name: {{ .Release.Name }}
+    common.k8s.elastic.co/type: elasticsearch
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/statefulset-name: {{ .Release.Name }}-es-client  
+  type: NodePort
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-bocloud-transport
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-transport
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  ports:
+    - name: https
+      protocol: TCP
+      port: 9300
+      targetPort: 9300
+  selector:
+    app.bocloud.com/name: {{ .Release.Name }}
+    common.k8s.elastic.co/type: elasticsearch
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+  type: NodePort  
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-bocloud-kibana
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-kibana
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  ports:
+    - name: https
+      protocol: TCP
+      port: 5601
+      targetPort: 5601
+  selector:
+    common.k8s.elastic.co/type: kibana
+    kibana.k8s.elastic.co/name: kibana-{{ .Release.Name }}
+  type: NodePort  
+{{ end }}

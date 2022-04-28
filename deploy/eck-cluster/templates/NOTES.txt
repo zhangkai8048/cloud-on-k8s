@@ -1,0 +1,10 @@
+
+
+export NAMESPACE={{ .Release.Namespace }}
+export SECRETNAME=$(kubectl get secret -n  $NAMESPACE | grep user | awk '{print$1}')
+export PASSWORD=$(kubectl get secret -n  $NAMESPACE  $SECRETNAME -o=jsonpath='{.data.elastic}' | base64 --decode)
+export BASEURL=$(kubectl get svc -n $NAMESPACE  | grep http | awk '{print$1}')
+export URL="$BASEURL:9200"
+echo "elastic:$PASSWORD"
+echo $URL
+curl -u "elastic:$PASSWORD" -k "https://elasticsearch-sample-es-http:9200"

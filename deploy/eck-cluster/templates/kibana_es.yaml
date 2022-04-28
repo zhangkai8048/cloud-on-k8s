@@ -1,0 +1,35 @@
+{{ if .Values.kibana.enabled -}}
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: kibana-{{ .Release.Name }}
+  labels:
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/name: {{ .Release.Name }}-kibana
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+    elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}
+spec:
+  version: {{ .Values.version }}
+  count: 1
+  elasticsearchRef:
+    name: "{{ .Release.Name }}"
+  http:
+    service:
+      spec:
+        type: {{ .Values.kibana.serviceType}}
+  podTemplate:
+    metadata:
+      labels:
+        boc.cloud.com/name: kibana
+    spec:
+      containers:
+      - name: kibana
+        image: {{ .Values.kibana.image}}   
+      resources:
+        requests:
+          cpu: {{ .Values.kibana.resources.requests.cpu}}
+          memory: {{ .Values.kibana.resources.requests.memory}}
+        limits:
+          cpu: {{ .Values.kibana.resources.limits.cpu}}
+          memory: {{ .Values.kibana.resources.limits.memory}}
+{{- end }}

@@ -4,7 +4,11 @@
 
 package kibana
 
-import "github.com/elastic/cloud-on-k8s/pkg/controller/common"
+import (
+	"strings"
+
+	"github.com/elastic/cloud-on-k8s/pkg/controller/common"
+)
 
 const (
 	// KibanaNameLabelName used to represent a Kibana in k8s resources
@@ -23,7 +27,8 @@ const (
 // NewLabels constructs a new set of labels for a Kibana pod
 func NewLabels(kibanaName string) map[string]string {
 	return map[string]string{
-		KibanaNameLabelName:  kibanaName,
-		common.TypeLabelName: Type,
+		"app.bocloud.com/name": strings.Split(kibanaName, "-")[1],
+		KibanaNameLabelName:    kibanaName,
+		common.TypeLabelName:   Type,
 	}
 }
