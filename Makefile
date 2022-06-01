@@ -46,9 +46,11 @@ TAG                ?= $(shell git rev-parse --short=8 --verify HEAD)
 IMG_NAME           ?= eck-operator
 IMG_VERSION        ?= $(VERSION)-$(TAG)
 
-BASE_IMG                 := $(REGISTRY)/$(REGISTRY_NAMESPACE)/$(IMG_NAME)
-OPERATOR_IMAGE           ?= $(BASE_IMG):$(IMG_VERSION)
-OPERATOR_DOCKERHUB_IMAGE ?= docker.io/elastic/$(IMG_NAME):$(IMG_VERSION)
+BASE_IMG                     := $(REGISTRY)/$(REGISTRY_NAMESPACE)/$(IMG_NAME)
+OPERATOR_IMAGE               ?= $(BASE_IMG):$(IMG_VERSION)
+OPERATOR_IMAGE_UBI           ?= $(BASE_IMG)-ubi:$(IMG_VERSION)
+OPERATOR_DOCKERHUB_IMAGE     ?= docker.io/elastic/$(IMG_NAME):$(IMG_VERSION)
+OPERATOR_DOCKERHUB_IMAGE_UBI ?= docker.io/elastic/$(IMG_NAME)-ubi8:$(IMG_VERSION)
 
 print-operator-image:
 	@ echo $(OPERATOR_IMAGE)
@@ -84,8 +86,8 @@ all: dependencies lint check-license-header unit integration e2e-compile elastic
 
 ## -- build
 
-dependencies:
-	go mod tidy -v && go mod download
+dependencies: tidy
+	go mod download
 
 # Generate code, CRDs and documentation
 ALL_V1_CRDS=config/crds/v1/all-crds.yaml
@@ -93,7 +95,7 @@ ALL_V1_CRDS=config/crds/v1/all-crds.yaml
 generate: tidy generate-crds-v1 generate-config-file generate-api-docs generate-notice-file
 
 tidy:
-	go mod tidy
+	go mod tidy -compat=1.17
 
 go-generate:
 	# we use this in pkg/controller/common/license
@@ -365,6 +367,8 @@ switch-tanzu:
 ##  --    Docker images    --  ##
 #################################
 
+BUILD_PLATFORM ?= "linux/amd64,linux/arm64"
+
 docker-multiarch-build: go-generate generate-config-file 
 ifeq ($(SNAPSHOT),false)
 	@ hack/docker.sh -l -m $(OPERATOR_IMAGE)
@@ -374,9 +378,21 @@ ifeq ($(SNAPSHOT),false)
 		--build-arg GO_LDFLAGS='$(GO_LDFLAGS)' \
 		--build-arg GO_TAGS='$(GO_TAGS)' \
 		--build-arg VERSION='$(VERSION)' \
-		--platform linux/amd64,linux/arm64 \
+		--platform $(BUILD_PLATFORM) \
 		-t $(OPERATOR_IMAGE) \
 		-t $(OPERATOR_DOCKERHUB_IMAGE) \
+		--push
+	# The following UBI build should already have the binary cached, and should
+	# be a quick operation.
+	docker buildx build . \
+		--progress=plain \
+		--build-arg GO_LDFLAGS='$(GO_LDFLAGS)' \
+		--build-arg GO_TAGS='$(GO_TAGS)' \
+		--build-arg VERSION='$(VERSION)' \
+		--platform linux/amd64,linux/arm64 \
+		-f Dockerfile.ubi \
+		-t $(OPERATOR_IMAGE_UBI) \
+		-t $(OPERATOR_DOCKERHUB_IMAGE_UBI) \
 		--push
 else
 	@ hack/docker.sh -l -m $(OPERATOR_IMAGE)
@@ -385,7 +401,7 @@ else
 		--build-arg GO_LDFLAGS='$(GO_LDFLAGS)' \
 		--build-arg GO_TAGS='$(GO_TAGS)' \
 		--build-arg VERSION='$(VERSION)' \
-		--platform linux/amd64,linux/arm64 \
+		--platform $(BUILD_PLATFORM) \
 		-t $(OPERATOR_IMAGE) \
 		--push
 endif
@@ -431,7 +447,7 @@ ifneq ($(strip $(E2E_IMG_TAG_SUFFIX)),) # If the suffix is not empty, append it 
 endif
 
 E2E_IMG                    ?= $(REGISTRY)/$(E2E_REGISTRY_NAMESPACE)/eck-e2e-tests:$(E2E_IMG_TAG)
-E2E_STACK_VERSION          ?= 8.0.0
+E2E_STACK_VERSION          ?= 8.2.0
 export TESTS_MATCH         ?= "^Test" # can be overriden to eg. TESTS_MATCH=TestMutationMoreNodes to match a single test
 export E2E_JSON            ?= false
 TEST_TIMEOUT               ?= 30m
@@ -459,7 +475,7 @@ e2e-docker-multiarch-build: go-generate
 		--file test/e2e/Dockerfile \
 		--build-arg E2E_JSON=$(E2E_JSON) \
 		--build-arg E2E_TAGS='$(E2E_TAGS)' \
-		--platform linux/amd64,linux/arm64 \
+		--platform $(BUILD_PLATFORM) \
 		--push \
 		-t $(E2E_IMG) .
 
@@ -471,6 +487,7 @@ e2e-run: go-generate
 		--test-license=$(TEST_LICENSE) \
 		--test-license-pkey-path=$(TEST_LICENSE_PKEY_PATH) \
 		--elastic-stack-version=$(E2E_STACK_VERSION) \
+		--elastic-stack-images=stack-versions-def.json \
 		--log-verbosity=$(LOG_VERBOSITY) \
 		--log-to-file=$(E2E_JSON) \
 		--test-timeout=$(TEST_TIMEOUT) \
@@ -526,6 +543,9 @@ ci-build-operator-e2e-run: setup-e2e build-operator-image e2e-run
 
 run-deployer: build-deployer
 	./hack/deployer/deployer execute --plans-file hack/deployer/config/plans.yml --config-file deployer-config.yml
+
+set-kubeconfig:
+	./hack/deployer/deployer get credentials --plans-file hack/deployer/config/plans.yml --config-file deployer-config.yml
 
 ci-release: clean ci-check build-operator-multiarch-image
 	@ echo $(OPERATOR_IMAGE) and $(OPERATOR_DOCKERHUB_IMAGE) were pushed!

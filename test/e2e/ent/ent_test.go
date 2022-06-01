@@ -3,7 +3,6 @@
 // you may not use this file except in compliance with the Elastic License 2.0.
 
 //go:build ent || e2e
-// +build ent e2e
 
 package ent
 
@@ -75,8 +74,7 @@ func TestEnterpriseSearchVersionUpgradeToLatest7x(t *testing.T) {
 }
 
 func TestEnterpriseSearchVersionUpgradeToLatest8x(t *testing.T) {
-	srcVersion := test.Ctx().ElasticStackVersion
-	dstVersion := test.LatestSnapshotVersion8x
+	srcVersion, dstVersion := test.GetUpgradePathTo8x(test.Ctx().ElasticStackVersion)
 
 	test.SkipInvalidUpgrade(t, srcVersion, dstVersion)
 

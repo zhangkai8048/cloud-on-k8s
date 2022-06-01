@@ -25,7 +25,6 @@ import (
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/stackmon/monitoring"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/volume"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/elasticsearch/label"
-	"github.com/elastic/cloud-on-k8s/pkg/controller/elasticsearch/user"
 	"github.com/elastic/cloud-on-k8s/pkg/utils/k8s"
 )
 
@@ -100,29 +99,33 @@ func newBeatConfig(client k8s.Client, beatName string, resource monitoring.HasMo
 }
 
 func buildOutputConfig(client k8s.Client, assoc commonv1.Association) (map[string]interface{}, volume.VolumeLike, error) {
-	username, password, err := association.ElasticsearchAuthSettings(client, assoc)
+	credentials, err := association.ElasticsearchAuthSettings(client, assoc)
 	if err != nil {
 		return nil, volume.SecretVolume{}, err
 	}
 
+	assocConf, err := assoc.AssociationConf()
+	if err != nil {
+		return nil, nil, err
+	}
 	outputConfig := map[string]interface{}{
-		"username": username,
-		"password": password,
-		"hosts":    []string{assoc.AssociationConf().GetURL()},
+		"username": credentials.Username,
+		"password": credentials.Password,
+		"hosts":    []string{assocConf.GetURL()},
 	}
 
 	caDirPath := fmt.Sprintf(
 		"/mnt/elastic-internal/%s-association/%s/%s/certs",
-		assoc.AssociationType(), assoc.AssociationRef().Namespace, assoc.AssociationRef().Name,
+		assoc.AssociationType(), assoc.AssociationRef().Namespace, assoc.AssociationRef().NameOrSecretName(),
 	)
 
 	var caVolume volume.VolumeLike
-	if assoc.AssociationConf().GetCACertProvided() {
+	if assocConf.GetCACertProvided() {
 		sslCAPath := filepath.Join(caDirPath, certificates.CAFileName)
 		outputConfig["ssl.certificate_authorities"] = []string{sslCAPath}
 		volumeName := caVolumeName(assoc)
 		caVolume = volume.NewSecretVolumeWithMountPath(
-			assoc.AssociationConf().GetCASecretName(), volumeName, caDirPath,
+			assocConf.GetCASecretName(), volumeName, caDirPath,
 		)
 	}
 
@@ -170,17 +173,13 @@ func buildMetricbeatBaseConfig(
 	client k8s.Client,
 	associationType commonv1.AssociationType,
 	nsn types.NamespacedName,
-	esNsn types.NamespacedName,
 	namer name.Namer,
 	url string,
+	username string,
+	password string,
 	isTLS bool,
 	configTemplate string,
 ) (string, volume.VolumeLike, error) {
-	password, err := user.GetMonitoringUserPassword(client, esNsn)
-	if err != nil {
-		return "", nil, err
-	}
-
 	hasCA := false
 	if isTLS {
 		var err error
@@ -191,7 +190,7 @@ func buildMetricbeatBaseConfig(
 	}
 
 	configData := inputConfigData{
-		Username: user.MonitoringUserName,
+		Username: username,
 		Password: password,
 		URL:      url,   // Metricbeat in the sidecar connects to the monitored resource using `localhost`
 		IsSSL:    isTLS, // enable SSL configuration based on whether the monitored resource has TLS enabled
@@ -211,7 +210,7 @@ func buildMetricbeatBaseConfig(
 
 	// render the config template with the config data
 	var metricbeatConfig bytes.Buffer
-	err = template.Must(template.New("").Parse(configTemplate)).Execute(&metricbeatConfig, configData)
+	err := template.Must(template.New("").Parse(configTemplate)).Execute(&metricbeatConfig, configData)
 	if err != nil {
 		return "", nil, err
 	}

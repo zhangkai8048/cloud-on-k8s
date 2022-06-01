@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"reflect"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -15,7 +16,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/pkg/errors"
 
 	agentv1alpha1 "github.com/elastic/cloud-on-k8s/pkg/apis/agent/v1alpha1"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common"
@@ -27,7 +29,7 @@ import (
 	"github.com/elastic/cloud-on-k8s/pkg/utils/pointer"
 )
 
-func reconcilePodVehicle(params Params, podTemplate corev1.PodTemplateSpec) *reconciler.Results {
+func reconcilePodVehicle(params Params, podTemplate corev1.PodTemplateSpec) (*reconciler.Results, agentv1alpha1.AgentStatus) {
 	defer tracing.Span(&params.Context)()
 	results := reconciler.NewResult(params.Context)
 
@@ -56,32 +58,32 @@ func reconcilePodVehicle(params Params, podTemplate corev1.PodTemplateSpec) *rec
 	}
 
 	ready, desired, err := reconciliationFunc(ReconciliationParams{
+		ctx:         params.Context,
 		client:      params.Client,
 		agent:       params.Agent,
 		podTemplate: podTemplate,
 	})
 
 	if err != nil {
-		return results.WithError(err)
+		return results.WithError(err), params.Status
 	}
 
 	// clean up the other one
-	if err := params.Client.Get(context.Background(), types.NamespacedName{
+	if err := params.Client.Get(params.Context, types.NamespacedName{
 		Namespace: params.Agent.Namespace,
 		Name:      name,
 	}, toDelete); err == nil {
-		results.WithError(params.Client.Delete(context.Background(), toDelete))
+		results.WithError(params.Client.Delete(params.Context, toDelete))
 	} else if !apierrors.IsNotFound(err) {
 		results.WithError(err)
 	}
 
-	err = updateStatus(params, ready, desired)
-	if err != nil && apierrors.IsConflict(err) {
-		params.Logger().V(1).Info("Conflict while updating status")
-		return results.WithResult(reconcile.Result{Requeue: true})
+	var status agentv1alpha1.AgentStatus
+	if status, err = calculateStatus(&params, ready, desired); err != nil {
+		err = errors.Wrap(err, "while calculating status")
 	}
 
-	return results.WithError(err)
+	return results.WithError(err), status
 }
 
 func reconcileDeployment(rp ReconciliationParams) (int32, int32, error) {
@@ -98,7 +100,7 @@ func reconcileDeployment(rp ReconciliationParams) (int32, int32, error) {
 		return 0, 0, err
 	}
 
-	reconciled, err := deployment.Reconcile(rp.client, d, &rp.agent)
+	reconciled, err := deployment.Reconcile(rp.ctx, rp.client, d, &rp.agent)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -120,7 +122,7 @@ func reconcileDaemonSet(rp ReconciliationParams) (int32, int32, error) {
 		return 0, 0, err
 	}
 
-	reconciled, err := daemonset.Reconcile(rp.client, ds, &rp.agent)
+	reconciled, err := daemonset.Reconcile(rp.ctx, rp.client, ds, &rp.agent)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -128,23 +130,41 @@ func reconcileDaemonSet(rp ReconciliationParams) (int32, int32, error) {
 	return reconciled.Status.NumberReady, reconciled.Status.DesiredNumberScheduled, nil
 }
 
+// ReconciliationParams are the parameters used during an Elastic Agent's reconciliation.
 type ReconciliationParams struct {
+	ctx         context.Context
 	client      k8s.Client
 	agent       agentv1alpha1.Agent
 	podTemplate corev1.PodTemplateSpec
 }
 
-func updateStatus(params Params, ready, desired int32) error {
+// calculateStatus will calculate a new status from the state of the pods within the k8s cluster
+// and will return any error encountered.
+func calculateStatus(params *Params, ready, desired int32) (agentv1alpha1.AgentStatus, error) {
 	agent := params.Agent
+	status := params.Status
 
 	pods, err := k8s.PodsMatchingLabels(params.Client, agent.Namespace, map[string]string{NameLabelName: agent.Name})
 	if err != nil {
-		return err
+		return status, err
 	}
-	agent.Status.AvailableNodes = ready
-	agent.Status.ExpectedNodes = desired
-	agent.Status.Health = CalculateHealth(agent.GetAssociations(), ready, desired)
-	agent.Status.Version = common.LowestVersionFromPods(agent.Status.Version, pods, VersionLabelName)
 
-	return params.Client.Status().Update(context.Background(), &agent)
+	status.Version = common.LowestVersionFromPods(status.Version, pods, VersionLabelName)
+	status.AvailableNodes = ready
+	status.ExpectedNodes = desired
+	health, err := CalculateHealth(agent.GetAssociations(), ready, desired)
+	if err != nil {
+		return status, err
+	}
+	status.Health = health
+	return status, nil
+}
+
+// updateStatus will update the Elastic Agent's status within the k8s cluster, using the given Elastic Agent and status.
+func updateStatus(ctx context.Context, agent agentv1alpha1.Agent, client client.Client, status agentv1alpha1.AgentStatus) error {
+	if reflect.DeepEqual(agent.Status, status) {
+		return nil
+	}
+	agent.Status = status
+	return common.UpdateStatus(ctx, client, &agent)
 }

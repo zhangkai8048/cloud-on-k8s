@@ -5,6 +5,7 @@
 package keystore
 
 import (
+	"context"
 	"testing"
 
 	"github.com/magiconair/properties/assert"
@@ -72,7 +73,7 @@ func fakeFlagInitContainersParameters(skipInitializedFlag bool) InitContainerPar
 	}
 }
 
-func TestResources(t *testing.T) {
+func TestReconcileResources(t *testing.T) {
 	varFalse := false
 	tests := []struct {
 		name                    string
@@ -226,7 +227,7 @@ echo "Keystore initialization successful."
 				Watches:      watches2.NewDynamicWatches(),
 				FakeRecorder: record.NewFakeRecorder(1000),
 			}
-			resources, err := NewResources(testDriver, &tt.kb, kbNamer, nil, tt.initContainerParameters)
+			resources, err := ReconcileResources(context.Background(), testDriver, &tt.kb, kbNamer, nil, tt.initContainerParameters)
 			require.NoError(t, err)
 			if tt.wantNil {
 				require.Nil(t, resources)

@@ -95,8 +95,8 @@ func (ent *EnterpriseSearch) AssociationRef() commonv1.ObjectSelector {
 	return ent.Spec.ElasticsearchRef.WithDefaultNamespace(ent.Namespace)
 }
 
-func (ent *EnterpriseSearch) AssociationConf() *commonv1.AssociationConf {
-	return ent.assocConf
+func (ent *EnterpriseSearch) AssociationConf() (*commonv1.AssociationConf, error) {
+	return commonv1.GetAndSetAssociationConf(ent, ent.assocConf)
 }
 
 func (ent *EnterpriseSearch) SetAssociationConf(assocConf *commonv1.AssociationConf) {
@@ -104,7 +104,11 @@ func (ent *EnterpriseSearch) SetAssociationConf(assocConf *commonv1.AssociationC
 }
 
 func (ent *EnterpriseSearch) RequiresAssociation() bool {
-	return ent.Spec.ElasticsearchRef.Name != ""
+	return ent.Spec.ElasticsearchRef.IsDefined()
+}
+
+func (ent *EnterpriseSearch) ElasticServiceAccount() (commonv1.ServiceAccountName, error) {
+	return "", nil
 }
 
 func (ent *EnterpriseSearch) GetAssociations() []commonv1.Association {

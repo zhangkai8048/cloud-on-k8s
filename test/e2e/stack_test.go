@@ -2,7 +2,7 @@
 // or more contributor license agreements. Licensed under the Elastic License 2.0;
 // you may not use this file except in compliance with the Elastic License 2.0.
 
-// +build mixed e2e
+//go:build mixed || e2e
 
 package e2e
 
@@ -33,8 +33,8 @@ import (
 // TestVersionUpgradeOrdering deploys the entire stack, with resources associated together.
 // Then, it updates their version, and ensures a strict ordering is respected during the version upgrade.
 func TestVersionUpgradeOrdering(t *testing.T) {
-	initialVersion := "7.17.0"
-	updatedVersion := "8.0.0"
+	initialVersion := "7.17.3"
+	updatedVersion := "8.2.0"
 
 	// upgrading the entire stack can take some time, since we need to account for (in order):
 	// - Elasticsearch rolling upgrade

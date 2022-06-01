@@ -26,6 +26,20 @@ type Builder struct {
 	Kibana                   kbv1.Kibana
 	ExternalElasticsearchRef commonv1.ObjectSelector
 	MutatedFrom              *Builder
+	GlobalCA                 bool
+}
+
+func (b Builder) DeepCopy() *Builder {
+	kb := b.Kibana.DeepCopy()
+	builderCopy := Builder{
+		Kibana: *kb,
+	}
+	if b.MutatedFrom != nil {
+		builderCopy.MutatedFrom = b.MutatedFrom.DeepCopy()
+	}
+	builderCopy.ExternalElasticsearchRef = b.ExternalElasticsearchRef
+	builderCopy.GlobalCA = b.GlobalCA
+	return &builderCopy
 }
 
 var _ test.Builder = Builder{}
@@ -55,11 +69,12 @@ func newBuilder(name, randSuffix string) Builder {
 		Name:      name,
 		Namespace: test.Ctx().ManagedNamespace(0),
 	}
+	def := test.Ctx().ImageDefinitionFor(kbv1.Kind)
 	return Builder{
 		Kibana: kbv1.Kibana{
 			ObjectMeta: meta,
 			Spec: kbv1.KibanaSpec{
-				Version: test.Ctx().ElasticStackVersion,
+				Version: def.Version,
 				PodTemplate: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						SecurityContext: test.DefaultSecurityContext(),
@@ -68,9 +83,15 @@ func newBuilder(name, randSuffix string) Builder {
 			},
 		},
 	}.
+		WithImage(def.Image).
 		WithSuffix(randSuffix).
 		WithLabel(run.TestNameLabel, name).
 		WithPodLabel(run.TestNameLabel, name)
+}
+
+func (b Builder) WithImage(image string) Builder {
+	b.Kibana.Spec.Image = image
+	return b
 }
 
 func (b Builder) WithSuffix(suffix string) Builder {
@@ -173,6 +194,11 @@ func (b Builder) WithTLSDisabled(disabled bool) Builder {
 		b.Kibana.Spec.HTTP.TLS.SelfSignedCertificate = b.Kibana.Spec.HTTP.TLS.SelfSignedCertificate.DeepCopy()
 	}
 	b.Kibana.Spec.HTTP.TLS.SelfSignedCertificate.Disabled = disabled
+	return b
+}
+
+func (b Builder) WithGlobalCA(v bool) Builder {
+	b.GlobalCA = v
 	return b
 }
 

@@ -51,12 +51,12 @@ func ReadinessProbeSecretVolume(ent entv1.EnterpriseSearch) volume.SecretVolume 
 	return volume.NewSecretVolume(ConfigName(ent.Name), "readiness-probe", ReadinessProbeMountPath, ReadinessProbeFilename, 0444)
 }
 
-// Reconcile reconciles the configuration of Enterprise Search: it generates the right configuration and
+// ReconcileConfig reconciles the configuration of Enterprise Search: it generates the right configuration and
 // stores it in a secret that is kept up to date.
 // The secret contains 2 entries:
 // - the Enterprise Search configuration file
 // - a bash script used as readiness probe
-func ReconcileConfig(driver driver.Interface, ent entv1.EnterpriseSearch, ipFamily corev1.IPFamily) (corev1.Secret, error) {
+func ReconcileConfig(ctx context.Context, driver driver.Interface, ent entv1.EnterpriseSearch, ipFamily corev1.IPFamily) (corev1.Secret, error) {
 	cfg, err := newConfig(driver, ent, ipFamily)
 	if err != nil {
 		return corev1.Secret{}, err
@@ -85,7 +85,7 @@ func ReconcileConfig(driver driver.Interface, ent entv1.EnterpriseSearch, ipFami
 		},
 	}
 
-	return reconciler.ReconcileSecret(driver.K8sClient(), expectedConfigSecret, &ent)
+	return reconciler.ReconcileSecret(ctx, driver.K8sClient(), expectedConfigSecret, &ent)
 }
 
 // partialConfigWithESAuth helps parsing the configuration file to retrieve ES credentials.
@@ -290,7 +290,11 @@ func defaultConfig(ent entv1.EnterpriseSearch, ipFamily corev1.IPFamily) (*setti
 }
 
 func associationConfig(c k8s.Client, ent entv1.EnterpriseSearch, userCfgHasAuth bool) (*settings.CanonicalConfig, error) {
-	if !ent.AssociationConf().IsConfigured() {
+	entAssocConf, err := ent.AssociationConf()
+	if err != nil {
+		return nil, err
+	}
+	if !entAssocConf.IsConfigured() {
 		return settings.NewCanonicalConfig(), nil
 	}
 
@@ -306,19 +310,19 @@ func associationConfig(c k8s.Client, ent entv1.EnterpriseSearch, userCfgHasAuth 
 		})
 	}
 
-	username, password, err := association.ElasticsearchAuthSettings(c, &ent)
+	credentials, err := association.ElasticsearchAuthSettings(c, &ent)
 	if err != nil {
 		return nil, err
 	}
 	if err := cfg.MergeWith(settings.MustCanonicalConfig(map[string]string{
-		"elasticsearch.host":     ent.AssociationConf().URL,
-		"elasticsearch.username": username,
-		"elasticsearch.password": password,
+		"elasticsearch.host":     entAssocConf.URL,
+		"elasticsearch.username": credentials.Username,
+		"elasticsearch.password": credentials.Password,
 	})); err != nil {
 		return nil, err
 	}
 
-	if ent.AssociationConf().GetCACertProvided() {
+	if entAssocConf.GetCACertProvided() {
 		if err := cfg.MergeWith(settings.MustCanonicalConfig(map[string]interface{}{
 			"elasticsearch.ssl.enabled":               true,
 			"elasticsearch.ssl.certificate_authority": filepath.Join(ESCertsPath, certificates.CAFileName),

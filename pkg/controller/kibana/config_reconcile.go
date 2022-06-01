@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -70,7 +70,7 @@ func ReconcileConfigSecret(
 	kb kbv1.Kibana,
 	kbSettings CanonicalConfig,
 ) error {
-	span, _ := apm.StartSpan(ctx, "reconcile_config_secret", tracing.SpanTypeApp)
+	span, ctx := apm.StartSpan(ctx, "reconcile_config_secret", tracing.SpanTypeApp)
 	defer span.End()
 
 	settingsYamlBytes, err := kbSettings.Render()
@@ -102,7 +102,7 @@ func ReconcileConfigSecret(
 		Data: data,
 	}
 
-	_, err = reconciler.ReconcileSecret(client, expected, &kb)
+	_, err = reconciler.ReconcileSecret(ctx, client, expected, &kb)
 	return err
 }
 

@@ -3,7 +3,6 @@
 // you may not use this file except in compliance with the Elastic License 2.0.
 
 //go:build es || e2e
-// +build es e2e
 
 package es
 
@@ -183,8 +182,7 @@ func TestVersionUpgradeTwoNodesToLatest7x(t *testing.T) {
 }
 
 func TestVersionUpgradeSingleToLatest8x(t *testing.T) {
-	srcVersion := test.Ctx().ElasticStackVersion
-	dstVersion := test.LatestSnapshotVersion8x
+	srcVersion, dstVersion := test.GetUpgradePathTo8x(test.Ctx().ElasticStackVersion)
 
 	test.SkipInvalidUpgrade(t, srcVersion, dstVersion)
 
@@ -200,8 +198,7 @@ func TestVersionUpgradeSingleToLatest8x(t *testing.T) {
 }
 
 func TestVersionUpgradeTwoNodesToLatest8x(t *testing.T) {
-	srcVersion := test.Ctx().ElasticStackVersion
-	dstVersion := test.LatestSnapshotVersion8x
+	srcVersion, dstVersion := test.GetUpgradePathTo8x(test.Ctx().ElasticStackVersion)
 
 	test.SkipInvalidUpgrade(t, srcVersion, dstVersion)
 

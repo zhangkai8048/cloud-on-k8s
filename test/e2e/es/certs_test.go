@@ -2,7 +2,7 @@
 // or more contributor license agreements. Licensed under the Elastic License 2.0;
 // you may not use this file except in compliance with the Elastic License 2.0.
 
-// +build es e2e
+//go:build es || e2e
 
 package es
 
@@ -75,7 +75,7 @@ func TestCustomHTTPCA(t *testing.T) {
 				Name: "Create an invalid CA secret",
 				Test: test.Eventually(func() error {
 					bogusSecret := mkCertSecret([]byte("garbage"), []byte("more garbage"))
-					_, err := reconciler.ReconcileSecret(k.Client, bogusSecret, nil)
+					_, err := reconciler.ReconcileSecret(context.Background(), k.Client, bogusSecret, nil)
 					return err
 				}),
 			}).
@@ -122,7 +122,7 @@ func TestCustomHTTPCA(t *testing.T) {
 						certificates.EncodePEMCert(customCA.Cert.Raw),
 						privateKey,
 					)
-					_, err = reconciler.ReconcileSecret(k.Client, caSecret, nil)
+					_, err = reconciler.ReconcileSecret(context.Background(), k.Client, caSecret, nil)
 					return err
 				}),
 			},
@@ -208,7 +208,7 @@ func TestHTTPECDSA(t *testing.T) {
 						certificates.EncodePEMCert(customCA.Cert.Raw),
 						privateKey,
 					)
-					_, err = reconciler.ReconcileSecret(k.Client, caSecret, nil)
+					_, err = reconciler.ReconcileSecret(context.Background(), k.Client, caSecret, nil)
 					return err
 				}),
 			},
@@ -337,7 +337,7 @@ func TestCustomTransportCA(t *testing.T) {
 					Name: "Create an invalid CA secret",
 					Test: test.Eventually(func() error {
 						bogusSecret := mkCertSecret([]byte("garbage"), []byte("more garbage"))
-						_, err := reconciler.ReconcileSecret(k.Client, bogusSecret, nil)
+						_, err := reconciler.ReconcileSecret(context.Background(), k.Client, bogusSecret, nil)
 						return err
 					}),
 				},
@@ -399,7 +399,7 @@ func TestCustomTransportCA(t *testing.T) {
 							certificates.EncodePEMCert(ca.Cert.Raw),
 							privateKey,
 						)
-						_, err = reconciler.ReconcileSecret(k.Client, caSecret, nil)
+						_, err = reconciler.ReconcileSecret(context.Background(), k.Client, caSecret, nil)
 						return err
 					}),
 				},

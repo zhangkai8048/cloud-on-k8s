@@ -7,7 +7,7 @@ package observer
 import (
 	"sync"
 
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	"k8s.io/apimachinery/pkg/types"
 
 	esv1 "github.com/elastic/cloud-on-k8s/pkg/apis/elasticsearch/v1"
@@ -111,7 +111,7 @@ func (m *Manager) List() []types.NamespacedName {
 	i := 0
 	for name := range m.observers {
 		names[i] = name
-		i++ //nolint:wastedassign
+		i++
 	}
 	return names
 }

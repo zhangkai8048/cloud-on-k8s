@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 
 	pkgerrors "github.com/pkg/errors"
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	esv1 "github.com/elastic/cloud-on-k8s/pkg/apis/elasticsearch/v1"
-	"github.com/elastic/cloud-on-k8s/pkg/controller/association"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/certificates"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/events"
@@ -173,7 +172,7 @@ func (r *ReconcileElasticsearch) Reconcile(ctx context.Context, request reconcil
 	}
 
 	// Remove any previous Finalizers
-	if err := finalizer.RemoveAll(r.Client, &es); err != nil {
+	if err := finalizer.RemoveAll(ctx, r.Client, &es); err != nil {
 		return reconcile.Result{}, tracing.CaptureError(ctx, err)
 	}
 
@@ -200,13 +199,9 @@ func (r *ReconcileElasticsearch) Reconcile(ctx context.Context, request reconcil
 	}
 
 	if isReconciled, message := results.IsReconciled(); !isReconciled {
-		// Do not overwrite other "non-ready" phases like MigratingData
-		if state.IsElasticsearchPhase(esv1.ElasticsearchReadyPhase) {
-			state.UpdateWithPhase(esv1.ElasticsearchApplyingChangesPhase)
-		}
+		state.UpdateWithPhase(esv1.ElasticsearchApplyingChangesPhase)
 		state.ReportCondition(esv1.ReconciliationComplete, corev1.ConditionFalse, message)
-	} else if !state.IsElasticsearchPhase(esv1.ElasticsearchResourceInvalid) {
-		// Do not overwrite invalid phase
+	} else {
 		state.UpdateWithPhase(esv1.ElasticsearchReadyPhase)
 	}
 
@@ -223,18 +218,18 @@ func (r *ReconcileElasticsearch) Reconcile(ctx context.Context, request reconcil
 }
 
 func (r *ReconcileElasticsearch) fetchElasticsearchWithAssociations(ctx context.Context, request reconcile.Request, es *esv1.Elasticsearch) (bool, error) {
-	span, _ := apm.StartSpan(ctx, "fetch_elasticsearch", tracing.SpanTypeApp)
+	span, ctx := apm.StartSpan(ctx, "fetch_elasticsearch", tracing.SpanTypeApp)
 	defer span.End()
 
-	err := association.FetchWithAssociations(ctx, r.Client, request, es)
-	if err != nil {
+	if err := r.Client.Get(ctx, request.NamespacedName, es); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Object not found, cleanup in-memory state. Children resources are garbage-collected either by
 			// the operator (see `onDelete`), either by k8s through the ownerReference mechanism.
-			return true, r.onDelete(types.NamespacedName{
-				Namespace: request.Namespace,
-				Name:      request.Name,
-			})
+			return true, r.onDelete(ctx,
+				types.NamespacedName{
+					Namespace: request.Namespace,
+					Name:      request.Name,
+				})
 		}
 		// Error reading the object - requeue the request.
 		return true, err
@@ -251,7 +246,7 @@ func (r *ReconcileElasticsearch) internalReconcile(
 
 	if es.IsMarkedForDeletion() {
 		// resource will be deleted, nothing to reconcile
-		return results.WithError(r.onDelete(k8s.ExtractNamespacedName(&es)))
+		return results.WithError(r.onDelete(ctx, k8s.ExtractNamespacedName(&es)))
 	}
 
 	span, ctx := apm.StartSpan(ctx, "validate", tracing.SpanTypeApp)
@@ -326,7 +321,7 @@ func (r *ReconcileElasticsearch) updateStatus(
 		"es_name", es.Name,
 		"status", cluster.Status,
 	)
-	return common.UpdateStatus(r.Client, cluster)
+	return common.UpdateStatus(ctx, r.Client, cluster)
 }
 
 // annotateResource adds the orchestration hints annotation to the Elasticsearch resource. The purpose of this annotation
@@ -357,7 +352,7 @@ func (r *ReconcileElasticsearch) annotateResource(
 }
 
 // onDelete garbage collect resources when an Elasticsearch cluster is deleted
-func (r *ReconcileElasticsearch) onDelete(es types.NamespacedName) error {
+func (r *ReconcileElasticsearch) onDelete(ctx context.Context, es types.NamespacedName) error {
 	r.expectations.RemoveCluster(es)
 	r.esObservers.StopObserving(es)
 	r.dynamicWatches.Secrets.RemoveHandlerForKey(keystore.SecureSettingsWatchName(es))
@@ -365,5 +360,5 @@ func (r *ReconcileElasticsearch) onDelete(es types.NamespacedName) error {
 	r.dynamicWatches.Secrets.RemoveHandlerForKey(transport.CustomTransportCertsWatchKey(es))
 	r.dynamicWatches.Secrets.RemoveHandlerForKey(user.UserProvidedRolesWatchName(es))
 	r.dynamicWatches.Secrets.RemoveHandlerForKey(user.UserProvidedFileRealmWatchName(es))
-	return reconciler.GarbageCollectSoftOwnedSecrets(r.Client, es, esv1.Kind)
+	return reconciler.GarbageCollectSoftOwnedSecrets(ctx, r.Client, es, esv1.Kind)
 }

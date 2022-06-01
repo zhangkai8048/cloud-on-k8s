@@ -8,9 +8,8 @@ import (
 	"context"
 	"time"
 
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -40,6 +39,8 @@ type Reconciler struct {
 	Labels   map[string]string // to set on the reconciled cert secrets
 	Services []corev1.Service  // to be used for TLS SANs
 
+	GlobalCA *CA // if configured on the operator level supersedes self-signed CAs but not per-resource custom CAs
+
 	CACertRotation RotationParams // to requeue a reconciliation before CA cert expiration
 	CertRotation   RotationParams // to requeue a reconciliation before cert expiration
 
@@ -52,13 +53,13 @@ type Reconciler struct {
 // - a Secret containing the public-facing HTTP certificates (same as the internal one, but without the key)
 // If TLS is disabled, self-signed certificates are still reconciled, for simplicity/consistency, but not used.
 func (r Reconciler) ReconcileCAAndHTTPCerts(ctx context.Context) (*CertificatesSecret, *reconciler.Results) {
-	span, _ := apm.StartSpan(ctx, "reconcile_certs", tracing.SpanTypeApp)
+	span, ctx := apm.StartSpan(ctx, "reconcile_certs", tracing.SpanTypeApp)
 	defer span.End()
 
 	results := reconciler.NewResult(ctx)
 
 	if !r.TLSOptions.Enabled() && r.GarbageCollectSecrets {
-		return nil, results.WithError(r.removeCAAndHTTPCertsSecrets())
+		return nil, results.WithError(r.removeCAAndHTTPCertsSecrets(ctx))
 	}
 
 	// check for custom certificates first
@@ -68,12 +69,16 @@ func (r Reconciler) ReconcileCAAndHTTPCerts(ctx context.Context) (*CertificatesS
 	}
 
 	var httpCa *CA
-	if customCerts.HasCAPrivateKey() {
+	switch {
+	case customCerts.HasCAPrivateKey():
 		// if we have user-provided CA cert + key use that
 		httpCa = customCerts.CA()
-	} else {
+	case r.GlobalCA != nil:
+		httpCa = r.GlobalCA
+	default:
 		// if not then reconcile self-signed CA
 		httpCa, err = ReconcileCAForOwner(
+			ctx,
 			r.K8sClient,
 			r.Namer,
 			r.Owner,
@@ -93,7 +98,7 @@ func (r Reconciler) ReconcileCAAndHTTPCerts(ctx context.Context) (*CertificatesS
 	}
 
 	// reconcile http customCerts: either self-signed or user-provided
-	httpCertificates, err := r.ReconcileInternalHTTPCerts(httpCa, customCerts)
+	httpCertificates, err := r.ReconcileInternalHTTPCerts(ctx, httpCa, customCerts)
 	if err != nil {
 		return nil, results.WithError(err)
 	}
@@ -108,26 +113,26 @@ func (r Reconciler) ReconcileCAAndHTTPCerts(ctx context.Context) (*CertificatesS
 	)
 
 	// reconcile http public cert secret, which does not contain the private key
-	results.WithError(r.ReconcilePublicHTTPCerts(httpCertificates))
+	results.WithError(r.ReconcilePublicHTTPCerts(ctx, httpCertificates))
 	return httpCertificates, results
 }
 
-func (r *Reconciler) removeCAAndHTTPCertsSecrets() error {
+func (r *Reconciler) removeCAAndHTTPCertsSecrets(ctx context.Context) error {
 	owner := k8s.ExtractNamespacedName(r.Owner)
 	// remove public certs secret
-	if err := deleteIfExists(r.K8sClient,
+	if err := k8s.DeleteSecretIfExists(ctx, r.K8sClient,
 		types.NamespacedName{Namespace: owner.Namespace, Name: PublicCertsSecretName(r.Namer, owner.Name)},
 	); err != nil {
 		return err
 	}
 	// remove internal certs secret
-	if err := deleteIfExists(r.K8sClient,
+	if err := k8s.DeleteSecretIfExists(ctx, r.K8sClient,
 		types.NamespacedName{Namespace: owner.Namespace, Name: InternalCertsSecretName(r.Namer, owner.Name)},
 	); err != nil {
 		return err
 	}
 	// remove CA secret
-	if err := deleteIfExists(r.K8sClient,
+	if err := k8s.DeleteSecretIfExists(ctx, r.K8sClient,
 		types.NamespacedName{Namespace: owner.Namespace, Name: CAInternalSecretName(r.Namer, owner.Name, HTTPCAType)},
 	); err != nil {
 		return err
@@ -137,20 +142,4 @@ func (r *Reconciler) removeCAAndHTTPCertsSecrets() error {
 	r.DynamicWatches.Secrets.RemoveHandlerForKey(CertificateWatchKey(r.Namer, r.Owner.GetName()))
 
 	return nil
-}
-
-func deleteIfExists(c k8s.Client, secretRef types.NamespacedName) error {
-	var secret corev1.Secret
-	err := c.Get(context.Background(), secretRef, &secret)
-	if err != nil && apierrors.IsNotFound(err) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	log.Info("Deleting secret", "namespace", secretRef.Namespace, "secret_name", secretRef.Name)
-	err = c.Delete(context.Background(), &secret)
-	if err != nil && apierrors.IsNotFound(err) {
-		return nil
-	}
-	return err
 }

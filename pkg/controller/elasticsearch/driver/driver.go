@@ -157,6 +157,7 @@ func (d *defaultDriver) Reconcile(ctx context.Context) *reconciler.Results {
 		d,
 		d.ES,
 		[]corev1.Service{*externalService, *internalService},
+		d.OperatorParameters.GlobalCA,
 		d.OperatorParameters.CACertRotation,
 		d.OperatorParameters.CertRotation,
 	)
@@ -193,6 +194,7 @@ func (d *defaultDriver) Reconcile(ctx context.Context) *reconciler.Results {
 		ctx,
 		d,
 		d.ES,
+		d.OperatorParameters.GlobalCA,
 		d.OperatorParameters.CACertRotation,
 		d.OperatorParameters.CertRotation,
 	)
@@ -286,7 +288,8 @@ func (d *defaultDriver) Reconcile(ctx context.Context) *reconciler.Results {
 	}
 
 	// setup a keystore with secure settings in an init container, if specified by the user
-	keystoreResources, err := keystore.NewResources(
+	keystoreResources, err := keystore.ReconcileResources(
+		ctx,
 		d,
 		&d.ES,
 		esv1.ESNamer,
@@ -307,20 +310,24 @@ func (d *defaultDriver) Reconcile(ctx context.Context) *reconciler.Results {
 	}
 
 	// reconcile beats config secrets if Stack Monitoring is defined
-	err = stackmon.ReconcileConfigSecrets(d.Client, d.ES)
+	err = stackmon.ReconcileConfigSecrets(ctx, d.Client, d.ES)
 	if err != nil {
 		return results.WithError(err)
 	}
 
 	// requeue if associations are defined but not yet configured, otherwise we may be in a situation where we deploy
 	// Elasticsearch Pods once, then change their spec a few seconds later once the association is configured
-	if !association.AreConfiguredIfSet(d.ES.GetAssociations(), d.Recorder()) {
+	areAssocsConfigured, err := association.AreConfiguredIfSet(d.ES.GetAssociations(), d.Recorder())
+	if err != nil {
+		return results.WithError(err)
+	}
+	if !areAssocsConfigured {
 		results.WithReconciliationState(defaultRequeue.WithReason("Some associations are not reconciled"))
 	}
 
 	// we want to reconcile suspended Pods before we start reconciling node specs as this is considered a debugging and
 	// troubleshooting tool that does not follow the change budget restrictions
-	if err := reconcileSuspendedPods(d.Client, d.ES, d.Expectations); err != nil {
+	if err := reconcileSuspendedPods(ctx, d.Client, d.ES, d.Expectations); err != nil {
 		return results.WithError(err)
 	}
 

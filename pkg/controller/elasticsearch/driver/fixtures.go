@@ -162,7 +162,7 @@ func (u upgradeTestPods) toStatefulSetList() sset.StatefulSetList {
 	i := 0
 	for statefulSet, replica := range statefulSets {
 		statefulSetList[i] = sset.TestSset{Name: statefulSet, ClusterName: TestEsName, Namespace: TestEsNamespace, Replicas: replica + 1}.Build()
-		i++ //nolint:wastedassign
+		i++
 	}
 	return statefulSetList
 }
@@ -180,13 +180,10 @@ func (u upgradeTestPods) toRuntimeObjects(version string, maxUnavailable int, f 
 	return result
 }
 
-func (u upgradeTestPods) toMasterPods() []corev1.Pod {
-	var result []corev1.Pod
+func (u upgradeTestPods) toCurrentPods() []corev1.Pod {
+	result := make([]corev1.Pod, 0, len(u))
 	for _, testPod := range u {
-		pod := testPod.toPod()
-		if label.IsMasterNode(pod) {
-			result = append(result, pod)
-		}
+		result = append(result, testPod.toPod())
 	}
 	return result
 }

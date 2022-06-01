@@ -16,11 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	"go.uber.org/automaxprocs/maxprocs"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -66,6 +65,7 @@ import (
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/reconciler"
 	controllerscheme "github.com/elastic/cloud-on-k8s/pkg/controller/common/scheme"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/tracing"
+	"github.com/elastic/cloud-on-k8s/pkg/controller/common/tracing/apmclientgo"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/common/version"
 	commonwebhook "github.com/elastic/cloud-on-k8s/pkg/controller/common/webhook"
 	"github.com/elastic/cloud-on-k8s/pkg/controller/elasticsearch"
@@ -83,6 +83,7 @@ import (
 	"github.com/elastic/cloud-on-k8s/pkg/dev/portforward"
 	licensing "github.com/elastic/cloud-on-k8s/pkg/license"
 	"github.com/elastic/cloud-on-k8s/pkg/telemetry"
+	"github.com/elastic/cloud-on-k8s/pkg/utils/fs"
 	"github.com/elastic/cloud-on-k8s/pkg/utils/k8s"
 	logconf "github.com/elastic/cloud-on-k8s/pkg/utils/log"
 	"github.com/elastic/cloud-on-k8s/pkg/utils/metrics"
@@ -124,10 +125,6 @@ func Command() *cobra.Command {
 				if err := viper.ReadInConfig(); err != nil {
 					return fmt.Errorf("failed to read config file %s: %w", configFile, err)
 				}
-
-				if !viper.GetBool(operator.DisableConfigWatch) {
-					viper.WatchConfig()
-				}
 			}
 
 			logconf.ChangeVerbosity(viper.GetInt(logconf.FlagName))
@@ -143,6 +140,11 @@ func Command() *cobra.Command {
 		false,
 		"Enables automatic port-forwarding "+
 			"(for dev use only as it exposes k8s resources on ephemeral ports to localhost)",
+	)
+	cmd.Flags().String(
+		operator.CADirFlag,
+		"",
+		"Path to a directory containing a CA certificate (tls.crt) and its associated private key (tls.key) to be used for all managed resources. Effectively disables the CA rotation and validity options.",
 	)
 	cmd.Flags().Duration(
 		operator.CACertRotateBeforeFlag,
@@ -316,27 +318,39 @@ func Command() *cobra.Command {
 
 func doRun(_ *cobra.Command, _ []string) error {
 	ctx := signals.SetupSignalHandler()
-	disableConfigWatch := viper.GetBool(operator.DisableConfigWatch)
 
-	// no config file to watch so start the operator directly
-	if configFile == "" || disableConfigWatch {
-		return startOperator(ctx)
+	// receive config/CA file update events over a channel
+	confUpdateChan := make(chan struct{}, 1)
+	var toWatch []string
+
+	// watch for config file changes
+	if !viper.GetBool(operator.DisableConfigWatch) && configFile != "" {
+		toWatch = append(toWatch, configFile)
 	}
 
-	// receive config file update events over a channel
-	confUpdateChan := make(chan struct{}, 1)
+	// watch for CA files if configured
+	caDir := viper.GetString(operator.CADirFlag)
+	if caDir != "" {
+		toWatch = append(toWatch,
+			filepath.Join(caDir, certificates.KeyFileName),
+			filepath.Join(caDir, certificates.CertFileName),
+			filepath.Join(caDir, certificates.CAKeyFileName),
+			filepath.Join(caDir, certificates.CAFileName),
+		)
+	}
 
-	viper.OnConfigChange(func(evt fsnotify.Event) {
-		if evt.Op&fsnotify.Write == fsnotify.Write || evt.Op&fsnotify.Create == fsnotify.Create {
-			confUpdateChan <- struct{}{}
-		}
-	})
+	onConfChange := func(_ []string) {
+		confUpdateChan <- struct{}{}
+	}
+	watcher := fs.NewFileWatcher(ctx, toWatch, onConfChange, 15*time.Second)
+	go watcher.Run()
 
-	// start the operator in a goroutine
+	// set up channels and context for the operator
 	errChan := make(chan error, 1)
 	ctx, cancelFunc := context.WithCancel(ctx)
 	defer cancelFunc()
 
+	// start the operator in a goroutine
 	go func() {
 		err := startOperator(ctx)
 		if err != nil {
@@ -350,15 +364,12 @@ func doRun(_ *cobra.Command, _ []string) error {
 		select {
 		case err := <-errChan: // operator failed
 			log.Error(err, "Shutting down due to error")
-
 			return err
 		case <-ctx.Done(): // signal received
 			log.Info("Shutting down due to signal")
-
 			return nil
 		case <-confUpdateChan: // config file updated
 			log.Info("Shutting down to apply updated configuration")
-
 			return nil
 		}
 	}
@@ -447,9 +458,18 @@ func startOperator(ctx context.Context) error {
 		return err
 	}
 
+	// set up APM  tracing if configured
+	var tracer *apm.Tracer
+	if viper.GetBool(operator.EnableTracingFlag) {
+		tracer = tracing.NewTracer("elastic-operator")
+		// set up APM tracing for client-go
+		cfg.Wrap(tracing.ClientGoTransportWrapper(
+			apmclientgo.WithDefaultTransaction(tracing.ClientGoCacheTx(tracer)),
+		))
+	}
+
 	// set the timeout for API client
 	cfg.Timeout = viper.GetDuration(operator.KubeClientTimeout)
-
 	// set the timeout for Elasticsearch requests
 	esclient.DefaultESClientTimeout = viper.GetDuration(operator.ElasticsearchClientTimeout)
 
@@ -464,7 +484,7 @@ func startOperator(ctx context.Context) error {
 		Scheme:                     clientgoscheme.Scheme,
 		CertDir:                    viper.GetString(operator.WebhookCertDirFlag),
 		LeaderElection:             viper.GetBool(operator.EnableLeaderElection),
-		LeaderElectionResourceLock: resourcelock.ConfigMapsResourceLock, // TODO: Revert to ConfigMapsLeases when support for 1.13 is dropped
+		LeaderElectionResourceLock: resourcelock.ConfigMapsLeasesResourceLock, // TODO: use 'lease' after operator is released with 'configmapsleases'
 		LeaderElectionID:           LeaderElectionConfigMapName,
 		LeaderElectionNamespace:    operatorNamespace,
 		Logger:                     log.WithName("eck-operator"),
@@ -498,6 +518,13 @@ func startOperator(ctx context.Context) error {
 	mgr, err := ctrl.NewManager(cfg, opts)
 	if err != nil {
 		log.Error(err, "Failed to create controller manager")
+		return err
+	}
+
+	// Retrieve globally shared CA if any
+	ca, err := readOptionalCA(viper.GetString(operator.CADirFlag))
+	if err != nil {
+		log.Error(err, "Cannot read global CA")
 		return err
 	}
 
@@ -539,10 +566,6 @@ func startOperator(ctx context.Context) error {
 	}
 
 	log.Info("Setting up controllers")
-	var tracer *apm.Tracer
-	if viper.GetBool(operator.EnableTracingFlag) {
-		tracer = tracing.NewTracer("elastic-operator")
-	}
 
 	exposedNodeLabels, err := esvalidation.NewExposedNodeLabels(viper.GetStringSlice(operator.ExposedNodeLabels))
 	if err != nil {
@@ -562,6 +585,7 @@ func startOperator(ctx context.Context) error {
 		IPFamily:          ipFamily,
 		OperatorNamespace: operatorNamespace,
 		OperatorInfo:      operatorInfo,
+		GlobalCA:          ca,
 		CACertRotation: certificates.RotationParams{
 			Validity:     caCertValidity,
 			RotateBefore: caCertRotateBefore,
@@ -577,7 +601,7 @@ func startOperator(ctx context.Context) error {
 	}
 
 	if viper.GetBool(operator.EnableWebhookFlag) {
-		setupWebhook(mgr, params.CertRotation, params.ValidateStorageClass, clientset, exposedNodeLabels, managedNamespaces)
+		setupWebhook(ctx, mgr, params.CertRotation, params.ValidateStorageClass, clientset, exposedNodeLabels, managedNamespaces, tracer)
 	}
 
 	enforceRbacOnRefs := viper.GetBool(operator.EnforceRBACOnRefsFlag)
@@ -595,7 +619,7 @@ func startOperator(ctx context.Context) error {
 
 	disableTelemetry := viper.GetBool(operator.DisableTelemetryFlag)
 	telemetryInterval := viper.GetDuration(operator.TelemetryIntervalFlag)
-	go asyncTasks(mgr, cfg, managedNamespaces, operatorNamespace, operatorInfo, disableTelemetry, telemetryInterval)
+	go asyncTasks(ctx, mgr, cfg, managedNamespaces, operatorNamespace, operatorInfo, disableTelemetry, telemetryInterval, tracer)
 
 	log.Info("Starting the manager", "uuid", operatorInfo.OperatorUUID,
 		"namespace", operatorNamespace, "version", operatorInfo.BuildInfo.Version,
@@ -636,8 +660,16 @@ func startOperator(ctx context.Context) error {
 	}
 }
 
+func readOptionalCA(caDir string) (*certificates.CA, error) {
+	if caDir == "" {
+		return nil, nil
+	}
+	return certificates.BuildCAFromFile(caDir)
+}
+
 // asyncTasks schedules some tasks to be started when this instance of the operator is elected
 func asyncTasks(
+	ctx context.Context,
 	mgr manager.Manager,
 	cfg *rest.Config,
 	managedNamespaces []string,
@@ -645,34 +677,41 @@ func asyncTasks(
 	operatorInfo about.OperatorInfo,
 	disableTelemetry bool,
 	telemetryInterval time.Duration,
+	tracer *apm.Tracer,
 ) {
 	<-mgr.Elected() // wait for this operator instance to be elected
 
 	// Report this instance as elected through Prometheus
 	metrics.Leader.WithLabelValues(string(operatorInfo.OperatorUUID), operatorNamespace).Set(1)
 
-	time.Sleep(10 * time.Second)                          // wait some arbitrary time for the manager to start
-	mgr.GetCache().WaitForCacheSync(context.Background()) // wait until k8s client cache is initialized
+	time.Sleep(10 * time.Second)         // wait some arbitrary time for the manager to start
+	mgr.GetCache().WaitForCacheSync(ctx) // wait until k8s client cache is initialized
 
 	// Start the resource reporter
 	go func() {
-		r := licensing.NewResourceReporter(mgr.GetClient(), operatorNamespace)
-		r.Start(licensing.ResourceReporterFrequency)
+		r := licensing.NewResourceReporter(mgr.GetClient(), operatorNamespace, tracer)
+		r.Start(ctx, licensing.ResourceReporterFrequency)
 	}()
 
 	if !disableTelemetry {
 		// Start the telemetry reporter
 		go func() {
-			tr := telemetry.NewReporter(operatorInfo, mgr.GetClient(), operatorNamespace, managedNamespaces, telemetryInterval)
-			tr.Start()
+			tr := telemetry.NewReporter(operatorInfo, mgr.GetClient(), operatorNamespace, managedNamespaces, telemetryInterval, tracer)
+			tr.Start(ctx)
 		}()
 	}
 
 	// Garbage collect orphaned secrets leftover from deleted resources while the operator was not running
 	// - association user secrets
-	garbageCollectUsers(cfg, managedNamespaces)
+	gcCtx := tracing.NewContextTransaction(ctx, tracer, "garbage-collection", "on_operator_start", nil)
+	err := garbageCollectUsers(gcCtx, cfg, managedNamespaces)
+	if err != nil {
+		log.Error(err, "exiting due to unrecoverable error")
+		os.Exit(1)
+	}
 	// - soft-owned secrets
-	garbageCollectSoftOwnedSecrets(mgr.GetClient())
+	garbageCollectSoftOwnedSecrets(gcCtx, mgr.GetClient())
+	tracing.EndContextTransaction(gcCtx)
 }
 
 func chooseAndValidateIPFamily(ipFamilyStr string, ipFamilyDefault corev1.IPFamily) (corev1.IPFamily, error) {
@@ -801,11 +840,13 @@ func validateCertExpirationFlags(validityFlag string, rotateBeforeFlag string) (
 	return certValidity, certRotateBefore, nil
 }
 
-func garbageCollectUsers(cfg *rest.Config, managedNamespaces []string) {
+func garbageCollectUsers(ctx context.Context, cfg *rest.Config, managedNamespaces []string) error {
+	span, ctx := apm.StartSpan(ctx, "gc_users", tracing.SpanTypeApp)
+	defer span.End()
+
 	ugc, err := association.NewUsersGarbageCollector(cfg, managedNamespaces)
 	if err != nil {
-		log.Error(err, "user garbage collector creation failed")
-		os.Exit(1)
+		return fmt.Errorf("user garbage collector creation failed: %w", err)
 	}
 	err = ugc.
 		For(&apmv1.ApmServerList{}, associationctl.ApmAssociationLabelNamespace, associationctl.ApmAssociationLabelName).
@@ -814,15 +855,18 @@ func garbageCollectUsers(cfg *rest.Config, managedNamespaces []string) {
 		For(&beatv1beta1.BeatList{}, associationctl.BeatAssociationLabelNamespace, associationctl.BeatAssociationLabelName).
 		For(&agentv1alpha1.AgentList{}, associationctl.AgentAssociationLabelNamespace, associationctl.AgentAssociationLabelName).
 		For(&emsv1alpha1.ElasticMapsServerList{}, associationctl.MapsESAssociationLabelNamespace, associationctl.MapsESAssociationLabelName).
-		DoGarbageCollection()
+		DoGarbageCollection(ctx)
 	if err != nil {
-		log.Error(err, "user garbage collector failed")
-		os.Exit(1)
+		return fmt.Errorf("user garbage collector failed: %w", err)
 	}
+	return nil
 }
 
-func garbageCollectSoftOwnedSecrets(k8sClient k8s.Client) {
-	if err := reconciler.GarbageCollectAllSoftOwnedOrphanSecrets(k8sClient, map[string]client.Object{
+func garbageCollectSoftOwnedSecrets(ctx context.Context, k8sClient k8s.Client) {
+	span, ctx := apm.StartSpan(ctx, "gc_soft_owned_secrets", tracing.SpanTypeApp)
+	defer span.End()
+
+	if err := reconciler.GarbageCollectAllSoftOwnedOrphanSecrets(ctx, k8sClient, map[string]client.Object{
 		esv1.Kind:          &esv1.Elasticsearch{},
 		apmv1.Kind:         &apmv1.ApmServer{},
 		kbv1.Kind:          &kbv1.Kibana{},
@@ -838,38 +882,18 @@ func garbageCollectSoftOwnedSecrets(k8sClient k8s.Client) {
 }
 
 func setupWebhook(
+	ctx context.Context,
 	mgr manager.Manager,
 	certRotation certificates.RotationParams,
 	validateStorageClass bool,
 	clientset kubernetes.Interface,
 	exposedNodeLabels esvalidation.NodeLabels,
-	managedNamespaces []string) {
+	managedNamespaces []string,
+	tracer *apm.Tracer) {
 	manageWebhookCerts := viper.GetBool(operator.ManageWebhookCertsFlag)
 	if manageWebhookCerts {
-		log.Info("Automatic management of the webhook certificates enabled")
-		// Ensure that all the certificates needed by the webhook server are already created
-		webhookParams := webhook.Params{
-			Name:       viper.GetString(operator.WebhookNameFlag),
-			Namespace:  viper.GetString(operator.OperatorNamespaceFlag),
-			SecretName: viper.GetString(operator.WebhookSecretFlag),
-			Rotation:   certRotation,
-		}
-
-		// retrieve the current webhook configuration interface
-		wh, err := webhookParams.NewAdmissionControllerInterface(context.Background(), clientset)
-		if err != nil {
+		if err := reconcileWebhookCertsAndAddController(ctx, mgr, certRotation, clientset, tracer); err != nil {
 			log.Error(err, "unable to setup the webhook certificates")
-			os.Exit(1)
-		}
-
-		// Force a first reconciliation to create the resources before the server is started
-		if err := webhookParams.ReconcileResources(context.Background(), clientset, wh); err != nil {
-			log.Error(err, "unable to setup the webhook certificates")
-			os.Exit(1)
-		}
-
-		if err := webhook.Add(mgr, webhookParams, clientset, wh); err != nil {
-			log.Error(err, "unable to create controller", "controller", webhook.ControllerName)
 			os.Exit(1)
 		}
 	}
@@ -928,4 +952,30 @@ func setupWebhook(
 		log.Error(err, "Timeout elapsed waiting for webhook certificate to be available", "path", keyPath, "timeout_seconds", timeout.Seconds())
 		os.Exit(1)
 	}
+}
+
+func reconcileWebhookCertsAndAddController(ctx context.Context, mgr manager.Manager, certRotation certificates.RotationParams, clientset kubernetes.Interface, tracer *apm.Tracer) error {
+	ctx = tracing.NewContextTransaction(ctx, tracer, "webhook", "reconcile", nil)
+	defer tracing.EndContextTransaction(ctx)
+	log.Info("Automatic management of the webhook certificates enabled")
+	// Ensure that all the certificates needed by the webhook server are already created
+	webhookParams := webhook.Params{
+		Name:       viper.GetString(operator.WebhookNameFlag),
+		Namespace:  viper.GetString(operator.OperatorNamespaceFlag),
+		SecretName: viper.GetString(operator.WebhookSecretFlag),
+		Rotation:   certRotation,
+	}
+
+	// retrieve the current webhook configuration interface
+	wh, err := webhookParams.NewAdmissionControllerInterface(ctx, clientset)
+	if err != nil {
+		return err
+	}
+
+	// Force a first reconciliation to create the resources before the server is started
+	if err := webhookParams.ReconcileResources(ctx, clientset, wh); err != nil {
+		return err
+	}
+
+	return webhook.Add(mgr, webhookParams, clientset, wh, tracer)
 }

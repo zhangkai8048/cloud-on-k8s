@@ -9,7 +9,7 @@ import (
 	"crypto/x509"
 	"time"
 
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	corev1 "k8s.io/api/core/v1"
 
 	commonv1 "github.com/elastic/cloud-on-k8s/pkg/apis/common/v1"
@@ -32,6 +32,7 @@ func ReconcileHTTP(
 	driver driver.Interface,
 	es esv1.Elasticsearch,
 	services []corev1.Service,
+	globalCA *certificates.CA,
 	caRotation certificates.RotationParams,
 	certRotation certificates.RotationParams,
 ) ([]*x509.Certificate, *reconciler.Results) {
@@ -61,6 +62,7 @@ func ReconcileHTTP(
 		Namer:          esv1.ESNamer,
 		Labels:         certsLabels,
 		Services:       services,
+		GlobalCA:       globalCA,
 		CACertRotation: caRotation,
 		CertRotation:   certRotation,
 		// ES is able to hot-reload TLS certificates: let's keep secrets around even though TLS is disabled.
@@ -86,10 +88,11 @@ func ReconcileTransport(
 	ctx context.Context,
 	driver driver.Interface,
 	es esv1.Elasticsearch,
+	globalCA *certificates.CA,
 	caRotation certificates.RotationParams,
 	certRotation certificates.RotationParams,
 ) *reconciler.Results {
-	span, _ := apm.StartSpan(ctx, "reconcile_transport_certs", tracing.SpanTypeApp)
+	span, ctx := apm.StartSpan(ctx, "reconcile_transport_certs", tracing.SpanTypeApp)
 	defer span.End()
 
 	results := reconciler.NewResult(ctx)
@@ -99,9 +102,11 @@ func ReconcileTransport(
 
 	// reconcile transport CA and certs
 	transportCA, err := transport.ReconcileOrRetrieveCA(
+		ctx,
 		driver,
 		es,
 		certsLabels,
+		globalCA,
 		caRotation,
 	)
 	if err != nil {
@@ -115,12 +120,13 @@ func ReconcileTransport(
 	)
 
 	// reconcile transport public certs secret
-	if err := transport.ReconcileTransportCertsPublicSecret(driver.K8sClient(), es, transportCA); err != nil {
+	if err := transport.ReconcileTransportCertsPublicSecret(ctx, driver.K8sClient(), es, transportCA); err != nil {
 		return results.WithError(err)
 	}
 
 	// reconcile transport certificates
 	transportResults := transport.ReconcileTransportCertificatesSecrets(
+		ctx,
 		driver.K8sClient(),
 		transportCA,
 		es,
@@ -128,7 +134,7 @@ func ReconcileTransport(
 	)
 
 	// reconcile remote clusters certificate authorities
-	if err := remoteca.Reconcile(driver.K8sClient(), es, *transportCA); err != nil {
+	if err := remoteca.Reconcile(ctx, driver.K8sClient(), es, *transportCA); err != nil {
 		results.WithError(err)
 	}
 

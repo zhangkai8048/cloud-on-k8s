@@ -3,7 +3,6 @@
 // you may not use this file except in compliance with the Elastic License 2.0.
 
 //go:build agent || e2e
-// +build agent e2e
 
 package agent
 
@@ -134,8 +133,11 @@ func TestMultipleOutputConfig(t *testing.T) {
 }
 
 func TestFleetMode(t *testing.T) {
-	// TODO remove once https://github.com/elastic/kibana/issues/126611 is fixed
-	t.SkipNow()
+	v := version.MustParse(test.Ctx().ElasticStackVersion)
+	// installation of policies and integrations through Kibana file based configuration was broken between those versions:
+	if v.LT(version.MinFor(8, 1, 0)) && v.GTE(version.MinFor(8, 0, 0)) {
+		t.SkipNow()
+	}
 
 	name := "test-agent-fleet"
 

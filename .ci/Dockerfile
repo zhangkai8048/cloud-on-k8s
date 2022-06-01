@@ -1,19 +1,19 @@
 # Docker image used for continuous integration
-FROM golang:1.17.8
+FROM golang:1.18.2
 
-ENV GOLANGCILINT_VERSION=1.38.0
-ENV SHELLCHECK_VERSION=0.7.1
+ENV GOLANGCILINT_VERSION=1.45.2
+ENV SHELLCHECK_VERSION=0.8.0
 ENV KUBEBUILDER_VERSION=2.3.1
-ENV GCLOUD_VERSION=353.0.0
-ENV KUBECTL_VERSION=1.14.7
-ENV DOCKER_VERSION=19.03.13
-ENV DOCKER_BUILDX_VERSION=0.4.2
-ENV GOTESTSUM_VERSION=0.5.0
+ENV GCLOUD_VERSION=381.0.0
+ENV KUBECTL_VERSION=1.19.16
+ENV DOCKER_VERSION=19.03.14
+ENV DOCKER_BUILDX_VERSION=0.8.2
+ENV GOTESTSUM_VERSION=1.8.0
 ENV EKSCTL_VERSION=0.74.0
-ENV ECK_DIAG_VERSION=1.0.2
+ENV ECK_DIAG_VERSION=1.1.0
 
 # golangci-lint
-RUN curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh \
+RUN curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
     | sh -s -- -b $(go env GOPATH)/bin v${GOLANGCILINT_VERSION}
 
 # kubebuilder to get required tools (etcd, apiserver, etc.)
@@ -66,9 +66,6 @@ RUN curl -fsSLO https://github.com/koalaman/shellcheck/releases/download/v${SHEL
     tar -xf shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz && \
     mv shellcheck-v${SHELLCHECK_VERSION} /usr/local/shellcheck && \
     rm shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz
-
-# Azure CLI to provision AKS clusters
-RUN curl -sSL https://aka.ms/InstallAzureCLIDeb | bash
 
 # gotestsum to generate xUnit compatible XML for tests
 RUN curl -fsSLO https://github.com/gotestyourself/gotestsum/releases/download/v${GOTESTSUM_VERSION}/gotestsum_${GOTESTSUM_VERSION}_linux_amd64.tar.gz && \

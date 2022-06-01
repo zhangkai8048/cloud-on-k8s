@@ -5,6 +5,8 @@
 package keystore
 
 import (
+	"context"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,10 +46,12 @@ func WatchedSecretNames(hasKeystore HasKeystore) []string {
 	return names
 }
 
-// NewResources optionally returns a volume and init container to include in pods,
+// ReconcileResources optionally returns a volume and init container to include in Pods,
 // in order to create a Keystore from a Secret containing secure settings provided by
 // the user and referenced in the Elastic Stack application spec.
-func NewResources(
+// It reconciles the backing secret with the API server and sets up the necessary watches.
+func ReconcileResources(
+	ctx context.Context,
 	r driver.Interface,
 	hasKeystore HasKeystore,
 	namer name.Namer,
@@ -55,7 +59,7 @@ func NewResources(
 	initContainerParams InitContainerParameters,
 ) (*Resources, error) {
 	// setup a volume from the user-provided secure settings secret
-	secretVolume, version, err := secureSettingsVolume(r, hasKeystore, labels, namer)
+	secretVolume, version, err := secureSettingsVolume(ctx, r, hasKeystore, labels, namer)
 	if err != nil {
 		return nil, err
 	}

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,7 +43,7 @@ func UpdateSeedHostsConfigMap(
 	es esv1.Elasticsearch,
 	pods []corev1.Pod,
 ) error {
-	span, _ := apm.StartSpan(ctx, "update_seed_hosts", tracing.SpanTypeApp)
+	span, ctx := apm.StartSpan(ctx, "update_seed_hosts", tracing.SpanTypeApp)
 	defer span.End()
 
 	// Get the masters from the pods
@@ -85,6 +85,7 @@ func UpdateSeedHostsConfigMap(
 	reconciled := &corev1.ConfigMap{}
 	return reconciler.ReconcileResource(
 		reconciler.Params{
+			Context:    ctx,
 			Client:     c,
 			Owner:      &es,
 			Expected:   &expected,
@@ -101,7 +102,7 @@ func UpdateSeedHostsConfigMap(
 			},
 			PostUpdate: func() {
 				log.Info("Seed hosts updated", "namespace", es.Namespace, "es_name", es.Name, "hosts", seedHosts)
-				annotation.MarkPodsAsUpdated(c,
+				annotation.MarkPodsAsUpdated(ctx, c,
 					client.InNamespace(es.Namespace),
 					label.NewLabelSelectorForElasticsearch(es))
 			},

@@ -2,7 +2,7 @@
 // or more contributor license agreements. Licensed under the Elastic License 2.0;
 // you may not use this file except in compliance with the Elastic License 2.0.
 
-// +build kb e2e
+//go:build kb || e2e
 
 package kb
 
@@ -135,8 +135,7 @@ func TestVersionUpgradeAndRespecToLatest7x(t *testing.T) {
 }
 
 func TestVersionUpgradeToLatest8x(t *testing.T) {
-	srcVersion := test.Ctx().ElasticStackVersion
-	dstVersion := test.LatestSnapshotVersion8x
+	srcVersion, dstVersion := test.GetUpgradePathTo8x(test.Ctx().ElasticStackVersion)
 
 	test.SkipInvalidUpgrade(t, srcVersion, dstVersion)
 
@@ -175,8 +174,7 @@ func TestVersionUpgradeToLatest8x(t *testing.T) {
 }
 
 func TestVersionUpgradeAndRespecToLatest8x(t *testing.T) {
-	srcVersion := test.Ctx().ElasticStackVersion
-	dstVersion := test.LatestSnapshotVersion8x
+	srcVersion, dstVersion := test.GetUpgradePathTo8x(test.Ctx().ElasticStackVersion)
 
 	test.SkipInvalidUpgrade(t, srcVersion, dstVersion)
 

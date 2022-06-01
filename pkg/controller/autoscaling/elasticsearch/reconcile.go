@@ -9,7 +9,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"go.elastic.co/apm"
+	"go.elastic.co/apm/v2"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -113,10 +113,10 @@ func (r *ReconcileElasticsearch) fetchElasticsearch(
 	request reconcile.Request,
 	es *esv1.Elasticsearch,
 ) (bool, error) {
-	span, _ := apm.StartSpan(ctx, "fetch_elasticsearch", tracing.SpanTypeApp)
+	span, ctx := apm.StartSpan(ctx, "fetch_elasticsearch", tracing.SpanTypeApp)
 	defer span.End()
 
-	err := r.Get(context.Background(), request.NamespacedName, es)
+	err := r.Get(ctx, request.NamespacedName, es)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return true, nil
