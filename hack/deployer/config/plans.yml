@@ -3,7 +3,7 @@ plans:
   operation: create
   clusterName: ci
   provider: gke
-  kubernetesVersion: 1.20
+  kubernetesVersion: 1.21
   machineType: n1-standard-8
   serviceAccount: true
   psp: true
@@ -18,7 +18,7 @@ plans:
   operation: create
   clusterName: dev
   provider: gke
-  kubernetesVersion: 1.20
+  kubernetesVersion: 1.21
   machineType: n1-standard-8
   serviceAccount: false
   psp: false
@@ -152,22 +152,22 @@ plans:
 - id: kind-dev
   operation: create
   clusterName: eck
-  clientVersion: 0.11.1
+  clientVersion: 0.14.0
   provider: kind
-  kubernetesVersion: 1.21.1
+  kubernetesVersion: 1.22.9
   kind:
     nodeCount: 3
-    nodeImage: kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6
+    nodeImage: kindest/node:v1.22.9@sha256:8135260b959dfe320206eb36b3aeda9cffcb262f4b44cda6b33f7bb73f453105
     ipFamily: ipv4
 - id: kind-ci
   operation: create
   clusterName: kind-ci
-  clientVersion: 0.11.1
+  clientVersion: 0.14.0
   provider: kind
-  kubernetesVersion: 1.21.1
+  kubernetesVersion: 1.22.9
   kind:
     nodeCount: 3
-    nodeImage: kindest/node:v1.22.0@sha256:b8bda84bb3a190e6e028b1760d277454a72267a5454b57db34437c34a588d047
+    nodeImage: kindest/node:v1.22.9@sha256:8135260b959dfe320206eb36b3aeda9cffcb262f4b44cda6b33f7bb73f453105
     ipFamily: ipv4
 - id: tanzu-ci
   operation: create
@@ -178,7 +178,7 @@ plans:
   tanzu:
     location: eastus
     nodeCount: 3
-    installerImage: cloudonk8s.azurecr.io/tanzu-ci:47a15de6827f
+    installerImage: cloudonk8s.azurecr.io/tanzu-ci:1.5.4
 - id: tanzu-dev
   operation: create
   clusterName: tkg-dev
@@ -187,4 +187,4 @@ plans:
   tanzu:
     location: westeurope
     nodeCount: 3
-    installerImage: cloudonk8s.azurecr.io/tanzu-ci:47a15de6827f
+    installerImage: cloudonk8s.azurecr.io/tanzu-ci:1.5.4

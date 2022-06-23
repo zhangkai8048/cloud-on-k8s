@@ -100,7 +100,8 @@ func (e *EKSDriver) Execute() error {
 	case DeleteAction:
 		if exists {
 			log.Printf("Deleting cluster ...")
-			return e.newCmd("eksctl delete cluster -v 0 --name {{.ClusterName}} --region {{.Region}}").Run()
+			// --wait to surface failures to delete all resources in the Cloud formation
+			return e.newCmd("eksctl delete cluster -v 0 --name {{.ClusterName}} --region {{.Region}} --wait").Run()
 		}
 		log.Printf("Not deleting cluster as it does not exist")
 	case CreateAction:
@@ -193,7 +194,7 @@ func (e *EKSDriver) auth() error {
 
 // fetchSecrets gets secret configuration data from vault and populates driver's context map with it.
 func (e *EKSDriver) fetchSecrets() error {
-	client, err := vault.NewClient(*e.plan.VaultInfo)
+	client, err := vault.NewClient(e.plan.VaultInfo)
 	if err != nil {
 		return err
 	}

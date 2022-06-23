@@ -58,10 +58,7 @@ func init() {
 type TanzuDriverFactory struct{}
 
 func (t TanzuDriverFactory) Create(plan Plan) (Driver, error) {
-	if plan.VaultInfo == nil {
-		return nil, fmt.Errorf("no vault credentials provided")
-	}
-	vaultClient, err := vault.NewClient(*plan.VaultInfo)
+	vaultClient, err := vault.NewClient(plan.VaultInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +165,8 @@ func (t *TanzuDriver) copyKubeconfig() error {
 // prepareCLI prepares the tanzu/az CLI by installing the necessary plugins and setting up configuration
 func (t *TanzuDriver) prepareCLI() error {
 	log.Println("Installing Tanzu CLI plugins")
-	return t.dockerizedTanzuCmd("plugin", "install", "--local", "/", "all").Run()
+	// init also syncs the plugins
+	return t.dockerizedTanzuCmd("init").Run()
 }
 
 // teardownCLI uninstall the plugins again mainly to make the footprint of the installer state smaller and to avoid
